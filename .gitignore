@@ -1,0 +1,6 @@
+*media_input/
+scripts/
+benchmark.sh
+python.sh
+restore.sh
+frame_timestamp_easyocr.py

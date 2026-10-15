@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Lumen Video Lite</title>
+  <style>
+    :root {
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #20352f;
+      background: #f4f5ef;
+      --ink: #20352f;
+      --muted: #71807a;
+      --line: #dce2da;
+      --paper: #fffefa;
+      --green: #286b54;
+      --green-dark: #1b4e3e;
+      --coral: #c85f3d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      background-color: #f4f5ef;
+      background-image: linear-gradient(rgba(42, 88, 68, .035) 1px, transparent 1px), linear-gradient(90deg, rgba(42, 88, 68, .035) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { width: min(1500px, 100%); margin: 0 auto; padding: 22px clamp(12px, 3vw, 38px) 32px; }
+    .topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 4px; background: var(--green); color: white; font: 700 17px Georgia, serif; }
+    .brand-kicker { color: var(--muted); font-size: 10px; font-weight: 800; }
+    h1 { margin: 2px 0 0; font: 600 22px/1.15 Georgia, "Iowan Old Style", serif; }
+    .server-state { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .state-dot { width: 8px; height: 8px; border-radius: 50%; background: #74a486; box-shadow: 0 0 0 3px #e0eee3; }
+    .settings-button { display: inline-flex; align-items: center; gap: 7px; }
+    .settings-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .field { display: grid; min-width: 0; gap: 6px; }
+    .field label, .group-label { color: var(--muted); font-size: 10px; font-weight: 800; }
+    input, select { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #cfd8cf; border-radius: 3px; outline: none; background: white; color: var(--ink); }
+    input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(40, 107, 84, .12); }
+    .mode-field[hidden] { display: none; }
+    .button, .quiet-button { min-height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 12px; font-weight: 700; transition: background .15s, border-color .15s; }
+    .button:hover, .quiet-button:hover { border-color: #8ca99a; background: #f4faf4; }
+    .button.primary { border-color: var(--coral); background: var(--coral); color: white; }
+    .button.primary:hover { border-color: #ad4e31; background: #ad4e31; }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    .status-line { display: flex; min-height: 38px; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+    .status-line.loading::before { width: 13px; height: 13px; border: 2px solid #cad8cd; border-top-color: var(--coral); border-radius: 50%; content: ""; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .workspace { display: grid; grid-template-columns: minmax(260px, .75fr) minmax(400px, 1.6fr); min-height: 520px; border: 1px solid var(--line); background: var(--paper); }
+    .results-pane, .detail-pane { min-width: 0; }
+    .results-pane { border-right: 1px solid var(--line); }
+    .pane-heading { display: flex; min-height: 44px; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 800; }
+    .result-list { max-height: 720px; overflow: auto; }
+    .result { display: grid; width: 100%; grid-template-columns: 86px minmax(0, 1fr); align-items: center; gap: 11px; padding: 10px; border: 0; border-bottom: 1px solid #e9ece6; background: transparent; color: inherit; text-align: left; }
+    .result:hover { background: #f7f8f2; }
+    .result.selected { background: #edf4eb; box-shadow: inset 3px 0 var(--green); }
+    .result img, .thumb-placeholder { display: grid; width: 86px; height: 56px; place-items: center; object-fit: cover; background: #e7ece5; color: #97a49b; font: 11px Georgia, serif; }
+    .result-title { display: block; overflow: hidden; margin-bottom: 5px; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+    .result-meta { display: block; color: var(--muted); font-size: 10px; }
+    .list-empty, .detail-empty { display: grid; min-height: 180px; place-items: center; padding: 20px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
+    .detail-pane { padding: 15px; }
+    .detail-head { margin-bottom: 10px; }
+    .detail-head h2 { overflow-wrap: anywhere; margin: 0 0 4px; font: 600 19px/1.2 Georgia, serif; }
+    .detail-path { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; }
+    .video-frame { display: grid; min-height: 190px; max-height: 440px; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; background: #172722; }
+    .video-stage { width: 100%; height: 100%; overflow: hidden; border-radius: 4px; }
+    video { display: block; width: 100%; max-height: 440px; aspect-ratio: 16 / 9; background: #172722; object-fit: contain; }
+    .thumb-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 8px 0 12px; }
+    .preview-thumb { position: relative; min-width: 0; overflow: hidden; padding: 0; border: 1px solid transparent; background: #e7ece5; }
+    .preview-thumb:hover, .preview-thumb:focus-visible { border-color: var(--coral); outline: 2px solid rgba(200, 95, 61, .24); }
+    .preview-thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+    .preview-time { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; background: rgba(18, 34, 27, .82); color: white; font-size: 9px; font-variant-numeric: tabular-nums; }
+    .action-line { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; overflow: visible; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .playback-section { flex: 0 0 auto; margin: 0; padding: 0; border: 0; }
+    .playback-controls { display: flex; flex-wrap: nowrap; align-items: end; gap: 9px; }
+    .control-group { display: grid; gap: 6px; }
+    .seek-controls { display: flex; align-items: end; gap: 6px; }
+    .seek-controls button { display: grid; width: 38px; height: 38px; min-width: 38px; place-items: center; padding: 0; }
+    .seek-controls svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .seek-controls svg text { fill: currentColor; stroke: none; font: 700 6px sans-serif; }
+    .speed-field { width: 78px; }
+    .detail-actions { display: flex; flex: 0 1 auto; align-items: end; }
+    .move-controls { display: grid; min-width: 0; max-width: 100%; flex: 0 1 auto; align-content: end; justify-items: start; gap: 6px; }
+    .quick-move-buttons { display: flex; max-width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: 5px; }
+    .quick-move-buttons button { min-width: 0; padding: 8px 7px; font-size: 10px; white-space: nowrap; }
+    .trash-button { display: grid; width: 36px; height: 38px; flex: 0 0 36px; place-items: center; margin-left: 2px; padding: 0; border-color: #e1b2ae; color: #b42318; }
+    .trash-button:hover { border-color: #cf7770; background: #fff2f0; color: #8d1c14; }
+    .trash-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .toast { position: fixed; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 36px)); padding: 11px 14px; background: var(--green-dark); color: white; font-size: 12px; box-shadow: 0 5px 20px rgba(20, 45, 35, .18); opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }
+    .toast.show { opacity: 1; transform: none; }
+    dialog { width: min(520px, calc(100% - 24px)); max-height: min(90vh, 760px); overflow: auto; border: 1px solid var(--line); padding: 0; color: var(--ink); box-shadow: 0 18px 70px rgba(21, 47, 37, .22); }
+    dialog::backdrop { background: rgba(22, 42, 34, .42); }
+    .settings-content { display: grid; gap: 14px; padding: 20px; }
+    .settings-content h2 { margin: 0; font: 600 21px Georgia, serif; }
+    .settings-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .settings-field { display: grid; min-width: 0; gap: 6px; }
+    .settings-field label { color: var(--muted); font-size: 10px; font-weight: 800; }
+    .settings-field input { width: 100%; }
+    .settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .settings-help { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    @media (max-width: 850px) {
+      .workspace { grid-template-columns: minmax(0, 1fr); }
+      .results-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .result-list { max-height: 260px; }
+    }
+    @media (max-width: 580px) {
+      .shell { padding: 14px 10px 24px; }
+      .server-state { display: none; }
+      .settings-content { padding: 14px; }
+      .settings-fields { grid-template-columns: 1fr; }
+      .detail-pane { padding: 10px; }
+      .video-frame, video { min-height: 150px; }
+      .result { grid-template-columns: 74px minmax(0, 1fr); }
+      .result img, .thumb-placeholder { width: 74px; height: 50px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topline">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">L</div>
+        <div><div class="brand-kicker">LUMEN / VIDEO LITE</div><h1>Raccolta video</h1></div>
+      </div>
+      <div class="top-actions">
+        <span class="server-state"><i class="state-dot"></i> Elaborazione locale</span>
+        <button class="quiet-button settings-button" id="settingsButton" type="button" aria-haspopup="dialog" aria-controls="settingsDialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.7 1.7 0 1 1-2.4 2.4l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a1.7 1.7 0 1 1-3.4 0v-.2a1.7 1.7 0 0 0-2.9-1.2l-.1.1a1.7 1.7 0 1 1-2.4-2.4l.1-.1a1.7 1.7 0 0 0-1.2-2.9H4a1.7 1.7 0 1 1 0-3.4h.2a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a1.7 1.7 0 1 1 2.4-2.4l.1.1a1.7 1.7 0 0 0 2.9-1.2V2a1.7 1.7 0 1 1 3.4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a1.7 1.7 0 1 1 2.4 2.4l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a1.7 1.7 0 1 1 0 3.4h-.2a1.7 1.7 0 0 0-1.2 2.9Z"/></svg>
+          <span>Impostazioni</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="status-line" id="statusLine" role="status" aria-live="polite">Connessione al catalogo…</div>
+
+    <section class="workspace" aria-label="Libreria video">
+      <section class="results-pane" aria-label="Elenco video">
+        <div class="pane-heading"><span>VIDEO</span><span id="videoCount">0</span></div>
+        <div class="result-list" id="resultList"><div class="list-empty">Caricamento catalogo…</div></div>
+      </section>
+      <section class="detail-pane" id="detailPane" aria-label="Player e azioni video">
+        <div class="detail-empty">Seleziona un video dall’elenco</div>
+      </section>
+    </section>
+  </main>
+  <dialog id="settingsDialog">
+    <form class="settings-content" id="settingsForm">
+      <h2>Impostazioni</h2>
+      <div class="settings-field"><label for="rootPath">CARTELLE INPUT</label><input id="rootPath" type="text" spellcheck="false" required></div>
+      <div class="settings-fields">
+        <div class="settings-field"><label for="outputTopless">CARTELLA TOPLESS</label><input id="outputTopless" type="text" value="1_TOPLESS" required></div>
+        <div class="settings-field"><label for="outputNude">CARTELLA NUDE</label><input id="outputNude" type="text" value="2_NUDE" required></div>
+        <div class="settings-field"><label for="outputLingerie">CARTELLA LINGERIE</label><input id="outputLingerie" type="text" value="3_LINGERIE" required></div>
+      </div>
+      <p class="settings-help">I percorsi delle cartelle sono relativi a <code>output/</code>.</p>
+      <div class="settings-actions">
+        <button class="button primary" id="indexButton" type="button">Indicizza / aggiorna</button>
+        <button class="quiet-button" id="clearCacheButton" type="button">Svuota cache anteprime</button>
+      </div>
+      <div class="dialog-actions"><button class="quiet-button" id="closeSettings" type="button">Chiudi</button><button class="button" type="submit">Salva impostazioni</button></div>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    const resultList = $("#resultList");
+    let videos = [];
+    let selectedPath = "";
+    let toastTimer;
+    let wasRunning = false;
+    let permanentTrashConfirmationRequired = false;
+    let outputFolders = { topless: "1_TOPLESS", nude: "2_NUDE", lingerie: "3_LINGERIE" };
+
+    async function request(url, options = {}) {
+      const response = await fetch(url, options);
+      const data = response.headers.get("content-type")?.includes("application/json") ? await response.json() : {};
+      if (!response.ok) {
+        const error = new Error(data.error || `Richiesta non riuscita (${response.status})`);
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      return data;
+    }
+    function post(url, body) {
+      return request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    }
+    function notify(message) {
+      const toast = $("#toast");
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 3000);
+    }
+    function formatDuration(seconds) {
+      if (!seconds) return "Durata non disponibile";
+      const total = Math.floor(seconds);
+      return `${String(Math.floor(total / 3600)).padStart(2, "0")}:${String(Math.floor(total % 3600 / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    }
+    function formatTime(seconds) {
+      const value = Math.max(0, Math.floor(seconds));
+      return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+    }
+    function updateStatus(state) {
+      const line = $("#statusLine");
+      line.textContent = `${state.message} · ${state.count} video`;
+      line.classList.toggle("loading", Boolean(state.running));
+      $("#indexButton").disabled = Boolean(state.running);
+      if (state.root && document.activeElement !== $("#rootPath")) $("#rootPath").value = state.root;
+      outputFolders = state.output_folders || outputFolders;
+      permanentTrashConfirmationRequired = Boolean(state.trash_requires_permanent_confirmation);
+      wasRunning = Boolean(state.running);
+    }
+    async function loadState() {
+      try {
+        const state = await request("/api/state");
+        const finished = wasRunning && !state.running;
+        updateStatus(state);
+        if (finished) await loadVideos();
+      } catch (error) {
+        $("#statusLine").textContent = error.message;
+      }
+    }
+    function addResult(video, index) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `result${video.path === selectedPath ? " selected" : ""}`;
+      button.setAttribute("aria-pressed", String(video.path === selectedPath));
+      const thumb = video.thumbnails?.[0];
+      const image = thumb?.url ? document.createElement("img") : document.createElement("span");
+      if (image instanceof HTMLImageElement) {
+        image.src = thumb.url;
+        image.alt = "";
+        image.loading = index < 8 ? "eager" : "lazy";
+      } else {
+        image.className = "thumb-placeholder";
+        image.textContent = "VIDEO";
+      }
+      const details = document.createElement("span");
+      const title = document.createElement("span");
+      title.className = "result-title";
+      title.textContent = video.filename;
+      const metadata = document.createElement("span");
+      metadata.className = "result-meta";
+      metadata.textContent = `${formatDuration(Number(video.duration))} · ${video.width ? `${video.width} × ${video.height}` : "Dimensione non disponibile"}`;
+      details.append(title, metadata);
+      button.append(image, details);
+      button.addEventListener("click", () => selectVideo(video.path));
+      resultList.append(button);
+    }
+    async function loadVideos() {
+      try {
+        const data = await request("/api/videos");
+        videos = data.videos;
+        $("#videoCount").textContent = String(videos.length);
+        resultList.replaceChildren();
+        if (!videos.length) {
+          const empty = document.createElement("div");
+          empty.className = "list-empty";
+          empty.textContent = "Nessun video indicizzato. Scegli una cartella e avvia l’indicizzazione.";
+          resultList.append(empty);
+          selectedPath = "";
+          $("#detailPane").innerHTML = '<div class="detail-empty">Seleziona un video dall’elenco</div>';
+          return;
+        }
+        videos.forEach(addResult);
+        const nextPath = videos.some((video) => video.path === selectedPath) ? selectedPath : videos[0].path;
+        selectVideo(nextPath);
+      } catch (error) {
+        notify(error.message);
+      }
+    }
+    function addPreviewThumb(strip, player, preview, filename) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "preview-thumb";
+      button.title = `Vai a ${formatTime(preview.time)}`;
+      button.setAttribute("aria-label", `Vai al fotogramma di ${filename} a ${formatTime(preview.time)}`);
+      const image = document.createElement("img");
+      image.src = preview.url;
+      image.alt = `Anteprima a ${formatTime(preview.time)}`;
+      image.loading = "lazy";
+      const time = document.createElement("span");
+      time.className = "preview-time";
+      time.textContent = formatTime(preview.time);
+      button.append(image, time);
+      button.addEventListener("click", () => {
+        const seek = () => {
+          if (Number.isFinite(player.duration)) player.currentTime = Math.min(preview.time, Math.max(0, player.duration - 0.05));
+          player.pause();
+        };
+        if (player.readyState >= 1) seek();
+        else player.addEventListener("loadedmetadata", seek, { once: true });
+      });
+      strip.append(button);
+    }
+    function clampPlayerTime(player, value) {
+      const max = Number.isFinite(player.duration) && player.duration > 0 ? Math.max(0, player.duration - 0.05) : 0;
+      return Math.min(Math.max(value, 0), max);
+    }
+    function stepPlayer(player, delta) {
+      if (!player || Number.isNaN(player.currentTime)) return;
+      player.currentTime = clampPlayerTime(player, player.currentTime + delta);
+    }
+    function selectVideo(path) {
+      selectedPath = path;
+      const video = videos.find((item) => item.path === path);
+      if (!video) return;
+      [...resultList.children].forEach((item, index) => {
+        item.classList.toggle("selected", videos[index]?.path === path);
+        item.setAttribute("aria-pressed", String(videos[index]?.path === path));
+      });
+      const pane = $("#detailPane");
+      pane.replaceChildren();
+      const head = document.createElement("div");
+      head.className = "detail-head";
+      const title = document.createElement("h2");
+      title.textContent = video.filename;
+      const pathLabel = document.createElement("div");
+      pathLabel.className = "detail-path";
+      pathLabel.textContent = video.path;
+      head.append(title, pathLabel);
+
+      const frame = document.createElement("div");
+      frame.className = "video-frame";
+      const stage = document.createElement("div");
+      stage.className = "video-stage";
+      const player = document.createElement("video");
+      player.controls = false;
+      player.preload = "metadata";
+      player.playsInline = true;
+      player.tabIndex = 0;
+      player.src = `/api/video?path=${encodeURIComponent(video.path)}`;
+      stage.addEventListener("pointerenter", () => { player.controls = true; });
+      stage.addEventListener("pointerleave", (event) => {
+        if (event.pointerType === "mouse" && document.activeElement !== player) player.controls = false;
+      });
+      player.addEventListener("focus", () => { player.controls = true; });
+      player.addEventListener("blur", () => { player.controls = false; });
+      stage.append(player);
+      frame.append(stage);
+
+      const thumbs = document.createElement("div");
+      thumbs.className = "thumb-strip";
+      (video.thumbnails || []).forEach((preview) => addPreviewThumb(thumbs, player, preview, video.filename));
+      if (!video.thumbnails?.length) {
+        const empty = document.createElement("span");
+        empty.className = "list-empty";
+        empty.textContent = "Le anteprime verranno create durante l’indicizzazione.";
+        thumbs.append(empty);
+      }
+
+      const playbackSection = document.createElement("section");
+      playbackSection.className = "playback-section";
+      const playbackControls = document.createElement("div");
+      playbackControls.className = "playback-controls";
+      const seekGroup = document.createElement("div");
+      seekGroup.className = "control-group";
+      const seekLabel = document.createElement("span");
+      seekLabel.className = "group-label";
+      seekLabel.textContent = "CONTROLLI";
+      const seekControls = document.createElement("div");
+      seekControls.className = "seek-controls";
+      const frameStep = Number(video.fps) > 0 ? 1 / Number(video.fps) : 1 / 25;
+      [
+        { label: "Indietro di 1 secondo", delta: -1, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M19 6 9 12l10 6Z"/><text x="13" y="14" text-anchor="middle">1s</text></svg>' },
+        { label: "Avanti di 1 secondo", delta: 1, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M5 6l10 6-10 6Z"/><text x="11" y="14" text-anchor="middle">1s</text></svg>' },
+        { label: "Indietro di 1 fotogramma", delta: -frameStep, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"/><path d="M14 9l-4 3 4 3"/></svg>' },
+        { label: "Avanti di 1 fotogramma", delta: frameStep, icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1"/><path d="m10 9 4 3-4 3"/></svg>' },
+      ].forEach(({ label, delta, icon }) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "quiet-button";
+        button.innerHTML = icon;
+        button.title = label;
+        button.setAttribute("aria-label", label);
+        button.addEventListener("click", () => stepPlayer(player, delta));
+        seekControls.append(button);
+      });
+      seekGroup.append(seekLabel, seekControls);
+
+      const speedField = document.createElement("div");
+      speedField.className = "field speed-field";
+      const speedLabel = document.createElement("label");
+      speedLabel.className = "group-label";
+      speedLabel.textContent = "VELOCITÀ";
+      const speedSelect = document.createElement("select");
+      [1, 3, 4, 5].forEach((rate) => {
+        const option = document.createElement("option");
+        option.value = String(rate);
+        option.textContent = `x${rate}`;
+        speedSelect.append(option);
+      });
+      speedSelect.value = String(player.playbackRate);
+      speedSelect.addEventListener("change", () => { player.playbackRate = Number(speedSelect.value); });
+      player.addEventListener("ratechange", () => {
+        const rate = String(player.playbackRate);
+        if (![...speedSelect.options].some((option) => option.value === rate)) {
+          const option = document.createElement("option");
+          option.value = rate;
+          option.textContent = `x${Number(rate).toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}`;
+          speedSelect.append(option);
+        }
+        speedSelect.value = rate;
+      });
+      speedField.append(speedLabel, speedSelect);
+      playbackControls.append(seekGroup, speedField);
+      playbackSection.append(playbackControls);
+
+      const actions = document.createElement("div");
+      actions.className = "detail-actions";
+      const externalButton = document.createElement("button");
+      externalButton.type = "button";
+      externalButton.className = "quiet-button";
+      externalButton.textContent = "Apri player esterno";
+      externalButton.addEventListener("click", async () => {
+        try {
+          await post("/api/open", { path: video.path });
+          notify("Apertura nel player di sistema richiesta");
+        } catch (error) { notify(error.message); }
+      });
+      actions.append(externalButton);
+
+      const moveControls = document.createElement("div");
+      moveControls.className = "move-controls";
+      const outputLabel = document.createElement("span");
+      outputLabel.className = "group-label";
+      outputLabel.textContent = "CARTELLE DI OUTPUT";
+      const moveButtons = document.createElement("div");
+      moveButtons.className = "quick-move-buttons";
+      [
+        { key: "topless", label: "TOPLESS" },
+        { key: "nude", label: "NUDE" },
+        { key: "lingerie", label: "LINGERIE" },
+      ].forEach(({ key, label }) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "quiet-button";
+        button.textContent = label;
+        button.title = `Sposta in output/${outputFolders[key]}`;
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const data = await post("/api/move", { path: video.path, subfolder: key });
+            selectedPath = "";
+            await loadVideos();
+            notify(`Spostato in ${data.path}`);
+          } catch (error) {
+            notify(error.message);
+          } finally {
+            button.disabled = false;
+          }
+        });
+        moveButtons.append(button);
+      });
+      const trashButton = document.createElement("button");
+      trashButton.type = "button";
+      trashButton.className = "quiet-button trash-button";
+      trashButton.title = "Sposta nel cestino";
+      trashButton.setAttribute("aria-label", "Sposta nel cestino");
+      trashButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+      trashButton.addEventListener("click", async () => {
+        const permanentDelete = permanentTrashConfirmationRequired;
+        const confirmationMessage = permanentDelete
+          ? `Il cestino Android non è disponibile.\n\n"${video.filename}" verrà CANCELLATO DEFINITIVAMENTE e non sarà recuperabile. Continuare?`
+          : `Spostare "${video.filename}" nel cestino del sistema? Potrai ripristinarlo dal cestino.`;
+        const confirmed = window.confirm(confirmationMessage);
+        if (!confirmed) return;
+        trashButton.disabled = true;
+        try {
+          try {
+            await post("/api/trash", { path: video.path, permanent_confirmed: permanentDelete });
+          } catch (error) {
+            if (!error.data?.permanent_confirmation_required) throw error;
+            const approvePermanentDelete = window.confirm(
+              `Android non è riuscito a inviare il video al cestino.\n\nLa cancellazione di "${video.filename}" sarà DEFINITIVA e irrecuperabile. Continuare?`,
+            );
+            if (!approvePermanentDelete) return;
+            await post("/api/trash", { path: video.path, permanent_confirmed: true });
+          }
+          selectedPath = "";
+          await loadVideos();
+          notify("Video spostato nel cestino");
+        } catch (error) {
+          notify(error.message);
+        } finally {
+          trashButton.disabled = false;
+        }
+      });
+      moveButtons.append(trashButton);
+      moveControls.append(outputLabel, moveButtons);
+      const actionLine = document.createElement("div");
+      actionLine.className = "action-line";
+      actionLine.append(playbackSection, actions, moveControls);
+      pane.append(head, frame, thumbs, actionLine);
+    }
+
+    function settingsPayload() {
+      return {
+        input_root: $("#rootPath").value,
+        output_folders: {
+          topless: $("#outputTopless").value,
+          nude: $("#outputNude").value,
+          lingerie: $("#outputLingerie").value,
+        },
+      };
+    }
+    async function fillSettings() {
+      try {
+        const state = await request("/api/state");
+        $("#rootPath").value = state.root || "";
+        outputFolders = state.output_folders || outputFolders;
+        $("#outputTopless").value = outputFolders.topless;
+        $("#outputNude").value = outputFolders.nude;
+        $("#outputLingerie").value = outputFolders.lingerie;
+        $("#settingsDialog").showModal();
+      } catch (error) { notify(error.message); }
+    }
+    $("#settingsButton").addEventListener("click", fillSettings);
+    $("#closeSettings").addEventListener("click", () => $("#settingsDialog").close());
+    $("#settingsForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const saved = await post("/api/settings", settingsPayload());
+        outputFolders = saved.output_folders;
+        $("#settingsDialog").close();
+        await loadState();
+        await loadVideos();
+        notify("Impostazioni salvate");
+      } catch (error) { notify(error.message); }
+    });
+    $("#clearCacheButton").addEventListener("click", async () => {
+      if (!window.confirm("Eliminare tutte le anteprime generate? I video non verranno modificati.")) return;
+      try {
+        const data = await post("/api/cache/clear", {});
+        await loadVideos();
+        notify(`${data.removed} anteprime eliminate dalla cache`);
+      } catch (error) { notify(error.message); }
+    });
+    $("#indexButton").addEventListener("click", async () => {
+      try {
+        await post("/api/settings", settingsPayload());
+        await post("/api/index", { root: $("#rootPath").value, mode: "CPU" });
+        $("#settingsDialog").close();
+        await loadState();
+      } catch (error) { notify(error.message); }
+    });
+    loadState().then(loadVideos);
+    setInterval(loadState, 1000);
+  </script>
+</body>
+</html>

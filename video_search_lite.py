@@ -1,0 +1,668 @@
+import cv2
+import hashlib
+import http.server
+import json
+import mimetypes
+import os
+import re
+import shutil
+import sqlite3
+import subprocess
+import sys
+import threading
+from pathlib import Path
+from send2trash import send2trash
+from urllib.parse import parse_qs, quote, urlsplit
+
+APP_NAME = "Lumen Video Lite"
+VIDEO_EXTENSIONS = {".avi", ".mkv", ".mov", ".mp4", ".m4v", ".webm", ".wmv"}
+THUMBNAIL_COUNT = 5
+OUTPUT_FOLDERS = {
+    "topless": "1_TOPLESS",
+    "nude": "2_NUDE",
+    "lingerie": "3_LINGERIE",
+}
+
+
+class TrashUnavailableError(RuntimeError):
+    pass
+
+
+def is_android() -> bool:
+    termux_prefix = os.environ.get("PREFIX", "")
+    return sys.platform == "android" or "ANDROID_ROOT" in os.environ or "com.termux" in termux_prefix
+
+
+def android_trash_command() -> str | None:
+    return shutil.which("termux-trash") if is_android() else None
+
+
+def default_data_dir() -> Path:
+    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    return base / "lumen-video-search"
+
+
+def default_cache_dir() -> Path:
+    base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return base / "lumen-video-search" / "previews"
+
+
+def send_file_to_trash(path: str) -> None:
+    if is_android():
+        trash_command = android_trash_command()
+        if not trash_command:
+            raise TrashUnavailableError("Il cestino Android non è disponibile.")
+        try:
+            subprocess.run([trash_command, path], check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as error:
+            raise TrashUnavailableError(error.stderr.strip() or "Android non ha potuto spostare il video nel cestino.") from error
+        return
+    send2trash(path)
+
+
+def preview_timestamp(duration: float, index: int) -> float:
+    return duration * (index + 1) / (THUMBNAIL_COUNT + 1)
+
+
+def cache_key(path: str) -> str:
+    return hashlib.sha256(path.encode("utf-8", errors="replace")).hexdigest()[:20]
+
+
+def preview_cache_key(path: str) -> str:
+    return f"{cache_key(path)}_interior"
+
+
+def preview_index(path: Path) -> int:
+    match = re.fullmatch(r".+?_(\d+)(?:_\d+)?\.png", path.name)
+    return int(match.group(1)) if match else 0
+
+
+def preview_time(path: Path) -> float:
+    match = re.fullmatch(r".+?_(\d+)(?:_(\d+))?\.png", path.name)
+    return int(match.group(2)) / 1000 if match and match.group(2) else 0.0
+
+
+def thumbnail_paths(cache_dir: Path, path: str) -> list[Path]:
+    prefix = preview_cache_key(path)
+    paths = cache_dir.glob(f"{prefix}_*.png")
+
+    def sort_key(item: Path) -> tuple[int, int]:
+        match = re.fullmatch(rf"{re.escape(prefix)}_(\d+)(?:_(\d+))?\.png", item.name)
+        return (int(match.group(1)), int(match.group(2) or 0)) if match else (0, 0)
+
+    return sorted(paths, key=sort_key)
+
+
+def decoder_available() -> bool:
+    if cv2 is None:
+        return False
+    try:
+        return cv2.cuda.getCudaEnabledDeviceCount() > 0
+    except (AttributeError, cv2.error):
+        return False
+
+
+def open_capture(path: str, use_gpu: bool = False):
+    if cv2 is None:
+        return None
+    if use_gpu and decoder_available():
+        try:
+            capture = cv2.VideoCapture(
+                path,
+                cv2.CAP_FFMPEG,
+                [cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY],
+            )
+            if capture.isOpened():
+                return capture
+            capture.release()
+        except (AttributeError, cv2.error, TypeError):
+            pass
+    capture = cv2.VideoCapture(path)
+    return capture if capture.isOpened() else None
+
+
+def create_previews(path: str, cache_dir: Path, use_gpu: bool = False) -> dict[str, object]:
+    if cv2 is None:
+        raise RuntimeError("OpenCV non è installato. Esegui: python -m pip install -r requirements.txt")
+    capture = open_capture(path, use_gpu)
+    if capture is None:
+        raise RuntimeError("Impossibile aprire il video.")
+    try:
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
+        count = min(THUMBNAIL_COUNT, frame_count) if frame_count > 0 else THUMBNAIL_COUNT
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        prefix = preview_cache_key(path)
+        for old_path in cache_dir.glob(f"{prefix}_*.png"):
+            old_path.unlink(missing_ok=True)
+        for index in range(count):
+            timestamp = preview_timestamp(duration, index)
+            if duration:
+                timestamp = min(timestamp, max(0.0, duration - 0.05))
+            capture.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                continue
+            frame_height, frame_width = frame.shape[:2]
+            scale = min(1.0, 480 / max(frame_width, frame_height))
+            if scale < 1:
+                frame = cv2.resize(
+                    frame,
+                    (int(frame_width * scale), int(frame_height * scale)),
+                    interpolation=cv2.INTER_AREA,
+                )
+            ok, encoded = cv2.imencode(".png", frame)
+            if ok:
+                target = cache_dir / f"{prefix}_{index:04d}_{int(timestamp * 1000):012d}.png"
+                target.write_bytes(encoded.tobytes())
+        return {"duration": duration, "width": width, "height": height, "fps": fps}
+    finally:
+        capture.release()
+
+
+class Catalog:
+    def __init__(self, database: Path, cache_dir: Path):
+        self.database = database
+        self.cache_dir = cache_dir
+        self.database.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        with self.connect() as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS videos (
+                    path TEXT PRIMARY KEY,
+                    root TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    modified REAL NOT NULL,
+                    duration REAL NOT NULL DEFAULT 0,
+                    width INTEGER NOT NULL DEFAULT 0,
+                    height INTEGER NOT NULL DEFAULT 0,
+                    fps REAL NOT NULL DEFAULT 0,
+                    missing INTEGER NOT NULL DEFAULT 0,
+                    archived INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(videos)")}
+            if "missing" not in columns:
+                connection.execute("ALTER TABLE videos ADD COLUMN missing INTEGER NOT NULL DEFAULT 0")
+            if "archived" not in columns:
+                connection.execute("ALTER TABLE videos ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            connection.execute("DROP TABLE IF EXISTS video_search")
+
+    def connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.database, timeout=20)
+
+    @staticmethod
+    def columns() -> tuple[str, ...]:
+        return (
+            "path", "root", "filename", "file_size", "modified", "duration",
+            "width", "height", "fps", "missing", "archived",
+        )
+
+    def upsert_video(self, record: dict[str, object]) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO videos (path, root, filename, file_size, modified,
+                    duration, width, height, fps, missing, archived)
+                VALUES (:path, :root, :filename, :file_size, :modified,
+                    :duration, :width, :height, :fps, 0, 0)
+                ON CONFLICT(path) DO UPDATE SET
+                    root=excluded.root, filename=excluded.filename,
+                    file_size=excluded.file_size, modified=excluded.modified,
+                    duration=excluded.duration, width=excluded.width,
+                    height=excluded.height, fps=excluded.fps,
+                    missing=0, archived=0
+                """,
+                record,
+            )
+
+    def list_videos(self, root: str) -> list[dict[str, object]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT path, root, filename, file_size, modified, duration, width, height, fps, missing, archived "
+                "FROM videos WHERE root=? AND missing=0 AND archived=0 ORDER BY filename COLLATE NOCASE",
+                (root,),
+            ).fetchall()
+        return [dict(zip(self.columns(), row)) for row in rows]
+
+    def get_video(self, path: str) -> dict[str, object] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT path, root, filename, file_size, modified, duration, width, height, fps, missing, archived "
+                "FROM videos WHERE path=?",
+                (path,),
+            ).fetchone()
+        return dict(zip(self.columns(), row)) if row else None
+
+    def known_files(self, root: str) -> dict[str, tuple[int, float]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT path, file_size, modified FROM videos WHERE root=? AND archived=0",
+                (root,),
+            ).fetchall()
+        return {row[0]: (row[1], row[2]) for row in rows}
+
+    def mark_missing(self, paths: set[str]) -> None:
+        if not paths:
+            return
+        with self.connect() as connection:
+            connection.executemany(
+                "UPDATE videos SET missing=1 WHERE path=?",
+                ((path,) for path in paths),
+            )
+
+    def move_video(self, source: str, destination: str) -> None:
+        stat = Path(destination).stat()
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE videos SET path=?, root=?, filename=?, file_size=?, modified=?, missing=0, archived=1 "
+                "WHERE path=?",
+                (destination, str(Path(destination).parent), Path(destination).name,
+                 stat.st_size, stat.st_mtime, source),
+            )
+
+    def mark_trashed(self, path: str) -> None:
+        with self.connect() as connection:
+            connection.execute("UPDATE videos SET missing=1, archived=1 WHERE path=?", (path,))
+
+
+class LocalWebApp:
+    def __init__(self):
+        data_dir = default_data_dir()
+        self.settings_path = data_dir / "settings.json"
+        try:
+            settings = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            settings = {}
+        cache_dir = Path(settings.get("cache_dir", str(default_cache_dir()))).expanduser()
+        self.catalog = Catalog(data_dir / "catalog.sqlite3", cache_dir)
+        self.root = str(Path(settings.get("input_root", Path.cwd() / "media_input")).expanduser().resolve())
+        self.output_folders = {
+            key: self._validate_output_subfolder(settings.get("output_folders", {}).get(key, default))
+            for key, default in OUTPUT_FOLDERS.items()
+        }
+        self.output_dir = (Path.cwd() / "output").resolve()
+        self.cuda_available = decoder_available()
+        self.lock = threading.Lock()
+        self.state: dict[str, object] = {
+            "running": False,
+            "message": "Scegli una cartella e avvia l’indicizzazione",
+            "updated": 0,
+            "failed": 0,
+            "removed": 0,
+        }
+
+    def api_state(self) -> dict[str, object]:
+        count = len(self.catalog.list_videos(self.root))
+        with self.lock:
+            current = dict(self.state)
+        return {
+            **current,
+            "root": self.root,
+            "count": count,
+            "cuda_available": self.cuda_available,
+            "trash_requires_permanent_confirmation": is_android() and not android_trash_command(),
+            "output_folders": dict(self.output_folders),
+        }
+
+    @staticmethod
+    def _validate_output_subfolder(value: object) -> str:
+        folder = Path(str(value).strip())
+        if not str(value).strip() or folder.is_absolute() or ".." in folder.parts or folder == Path("."):
+            raise ValueError("Il percorso output deve essere relativo e restare dentro output/.")
+        return str(folder)
+
+    def save_settings(self, input_root: str, output_folders: dict[str, object]) -> dict[str, object]:
+        root = Path(input_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError("La cartella input selezionata non esiste.")
+        normalized = {
+            key: self._validate_output_subfolder(output_folders.get(key, self.output_folders[key]))
+            for key in OUTPUT_FOLDERS
+        }
+        with self.lock:
+            if self.state["running"]:
+                raise RuntimeError("Non puoi cambiare le impostazioni durante l’indicizzazione.")
+            self.root = str(root)
+            self.output_folders = normalized
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings = {
+            "input_root": str(root),
+            "output_folders": normalized,
+            "cache_dir": str(self.catalog.cache_dir),
+        }
+        self.settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"root": str(root), "output_folders": dict(normalized)}
+
+    def clear_preview_cache(self) -> int:
+        with self.lock:
+            if self.state["running"]:
+                raise RuntimeError("Attendi la fine dell’indicizzazione prima di svuotare la cache.")
+        removed = 0
+        for preview in self.catalog.cache_dir.glob("*.png"):
+            preview.unlink(missing_ok=True)
+            removed += 1
+        return removed
+
+    def start_index(self, root_text: str, mode: str = "CPU") -> None:
+        root = Path(root_text).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError("La cartella selezionata non esiste.")
+        if cv2 is None:
+            raise RuntimeError("OpenCV non è installato. Esegui: python -m pip install -r requirements.txt")
+        with self.lock:
+            if self.state["running"]:
+                raise RuntimeError("Un’indicizzazione è già in corso.")
+            self.root = str(root)
+            self.state.update(running=True, message="Scansione della cartella in corso…")
+        use_gpu = mode == "GPU" and self.cuda_available
+        threading.Thread(target=self._index_worker, args=(root, use_gpu), daemon=True).start()
+
+    def _index_worker(self, root: Path, use_gpu: bool) -> None:
+        root_text = str(root)
+        previous = self.catalog.known_files(root_text)
+        seen: set[str] = set()
+        updated = failed = visited = 0
+        for folder, _subfolders, filenames in os.walk(root):
+            for filename in filenames:
+                if Path(filename).suffix.casefold() not in VIDEO_EXTENSIONS:
+                    continue
+                path = Path(folder, filename).resolve()
+                path_text = str(path)
+                try:
+                    stat = path.stat()
+                    seen.add(path_text)
+                    old = previous.get(path_text)
+                    if old == (stat.st_size, stat.st_mtime) and thumbnail_paths(self.catalog.cache_dir, path_text):
+                        continue
+                    details = create_previews(path_text, self.catalog.cache_dir, use_gpu)
+                    self.catalog.upsert_video({
+                        "path": path_text,
+                        "root": root_text,
+                        "filename": path.name,
+                        "file_size": stat.st_size,
+                        "modified": stat.st_mtime,
+                        **details,
+                    })
+                    updated += 1
+                except Exception:
+                    failed += 1
+                finally:
+                    visited += 1
+                    if visited % 10 == 0:
+                        with self.lock:
+                            self.state["message"] = f"Scansione: {visited} video controllati"
+        self.catalog.mark_missing(set(previous) - seen)
+        with self.lock:
+            self.state.update(
+                running=False,
+                updated=updated,
+                failed=failed,
+                removed=len(set(previous) - seen),
+                message=f"Indice aggiornato · {updated} aggiornati · {len(set(previous) - seen)} rimossi · {failed} errori",
+            )
+
+    def video_items(self) -> list[dict[str, object]]:
+        videos = self.catalog.list_videos(self.root)
+        for video in videos:
+            path = str(video["path"])
+            video["thumbnails"] = [
+                {
+                    "index": preview_index(image),
+                    "time": preview_time(image),
+                    "url": (
+                        f"/api/thumbnail?path={quote(path, safe='')}&index={preview_index(image)}"
+                        f"&v={image.stat().st_mtime_ns}"
+                    ),
+                }
+                for image in thumbnail_paths(self.catalog.cache_dir, path)[:THUMBNAIL_COUNT]
+            ]
+        return videos
+
+    def move_video_to_output(self, path: str, subfolder: str) -> str:
+        if subfolder not in self.output_folders:
+            raise ValueError("Scegli una delle cartelle di output disponibili.")
+        video = self.catalog.get_video(path)
+        source = Path(path).resolve()
+        if not video or video["missing"] or video["archived"] or not source.is_file():
+            raise ValueError("Video non trovato o già archiviato.")
+        output_root = self.output_dir.resolve()
+        destination_dir = (output_root / self.output_folders[subfolder]).resolve()
+        try:
+            destination_dir.relative_to(output_root)
+        except ValueError as error:
+            raise ValueError("La destinazione deve restare dentro output/.") from error
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / source.name
+        if destination.exists():
+            raise FileExistsError(f"Esiste già un file in {destination}.")
+        old_prefix = preview_cache_key(path)
+        new_path = shutil.move(str(source), str(destination))
+        try:
+            self.catalog.move_video(path, new_path)
+        except Exception:
+            shutil.move(new_path, str(source))
+            raise
+        new_prefix = preview_cache_key(new_path)
+        for image in thumbnail_paths(self.catalog.cache_dir, path):
+            try:
+                image.rename(image.with_name(new_prefix + image.name[len(old_prefix):]))
+            except OSError:
+                pass
+        return new_path
+
+    def trash_video(self, path: str, permanent_confirmed: bool = False) -> None:
+        video = self.catalog.get_video(path)
+        source = Path(path).resolve()
+        if not video or video["missing"] or video["archived"] or not source.is_file():
+            raise ValueError("Video non trovato o già archiviato.")
+        if permanent_confirmed:
+            if not is_android():
+                raise ValueError("La cancellazione definitiva è consentita solo come fallback Android.")
+            source.unlink()
+        else:
+            send_file_to_trash(str(source))
+        self.catalog.mark_trashed(path)
+        for preview in thumbnail_paths(self.catalog.cache_dir, path):
+            preview.unlink(missing_ok=True)
+
+
+class LocalWebServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, address, app: LocalWebApp):
+        self.app = app
+        super().__init__(address, LocalWebRequestHandler)
+
+
+class LocalWebRequestHandler(http.server.BaseHTTPRequestHandler):
+    server: LocalWebServer
+
+    def log_message(self, _format: str, *args: object) -> None:
+        return
+
+    def send_json(self, data: object, status: int = 200) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_json(self) -> dict[str, object]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length > 1_000_000:
+            raise ValueError("Richiesta troppo grande.")
+        value = json.loads(self.rfile.read(length) or b"{}")
+        if not isinstance(value, dict):
+            raise ValueError("Corpo JSON non valido.")
+        return value
+
+    def do_GET(self) -> None:
+        request = urlsplit(self.path)
+        app = self.server.app
+        if request.path == "/":
+            try:
+                body = Path(__file__).with_name("video_search_lite.html").read_bytes()
+            except OSError:
+                self.send_error(500, "Interfaccia lite non trovata")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        elif request.path == "/api/state":
+            self.send_json(app.api_state())
+        elif request.path == "/api/videos":
+            videos = app.video_items()
+            self.send_json({"videos": videos, "count": len(videos)})
+        elif request.path == "/api/thumbnail":
+            params = parse_qs(request.query)
+            path = params.get("path", [""])[0]
+            try:
+                index = int(params.get("index", ["0"])[0])
+                video = app.catalog.get_video(path)
+                previews = thumbnail_paths(app.catalog.cache_dir, path) if video else []
+                image = next((item for item in previews if preview_index(item) == index), None)
+                if image is None:
+                    self.send_error(404)
+                    return
+                body = image.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
+            except (OSError, ValueError):
+                self.send_error(404)
+        elif request.path == "/api/video":
+            path = parse_qs(request.query).get("path", [""])[0]
+            video = app.catalog.get_video(path)
+            file_path = Path(path)
+            if not video or not file_path.is_file():
+                self.send_error(404)
+                return
+            self.send_video(file_path)
+        else:
+            self.send_error(404)
+
+    def send_video(self, path: Path) -> None:
+        size = path.stat().st_size
+        start, end, status = 0, size - 1, 200
+        range_header = self.headers.get("Range")
+        if range_header:
+            match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
+            if not match or (not match.group(1) and not match.group(2)):
+                self.send_error(416)
+                return
+            if match.group(1):
+                start = int(match.group(1))
+                end = min(int(match.group(2)), size - 1) if match.group(2) else size - 1
+            else:
+                start = max(0, size - int(match.group(2)))
+            if start >= size or start > end:
+                self.send_error(416)
+                return
+            status = 206
+        length = max(0, end - start + 1)
+        self.send_response(status)
+        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(length))
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        try:
+            with path.open("rb") as file:
+                file.seek(start)
+                remaining = length
+                while remaining:
+                    chunk = file.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def do_POST(self) -> None:
+        try:
+            data = self.read_json()
+            app = self.server.app
+            if self.path == "/api/index":
+                app.start_index(str(data.get("root", "")), str(data.get("mode", "CPU")))
+                self.send_json({"ok": True}, 202)
+            elif self.path == "/api/settings":
+                result = app.save_settings(
+                    str(data.get("input_root", "")),
+                    data.get("output_folders", {}),
+                )
+                self.send_json({"ok": True, **result})
+            elif self.path == "/api/cache/clear":
+                self.send_json({"ok": True, "removed": app.clear_preview_cache()})
+            elif self.path == "/api/move":
+                destination = app.move_video_to_output(
+                    str(data.get("path", "")), str(data.get("subfolder", ""))
+                )
+                self.send_json({"ok": True, "path": destination})
+            elif self.path == "/api/trash":
+                path = str(data.get("path", ""))
+                try:
+                    app.trash_video(path, permanent_confirmed=bool(data.get("permanent_confirmed", False)))
+                except TrashUnavailableError as error:
+                    self.send_json({
+                        "error": str(error),
+                        "permanent_confirmation_required": True,
+                    }, 409)
+                    return
+                self.send_json({"ok": True})
+            elif self.path == "/api/open":
+                path = str(data.get("path", ""))
+                video = app.catalog.get_video(path)
+                if not video or not Path(path).is_file():
+                    raise ValueError("Video non trovato nel catalogo.")
+                if sys.platform.startswith("linux"):
+                    subprocess.Popen(["xdg-open", path])
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", path])
+                else:
+                    os.startfile(path)
+                self.send_json({"ok": True})
+            else:
+                self.send_error(404)
+        except (ValueError, TypeError, json.JSONDecodeError, OSError, RuntimeError) as error:
+            self.send_json({"error": str(error)}, 400)
+
+
+def main() -> int:
+    host = os.environ.get("LUMEN_HOST", "127.0.0.1")
+    try:
+        port = int(os.environ.get("LUMEN_PORT", "8000"))
+        app = LocalWebApp()
+        server = LocalWebServer((host, port), app)
+    except (OSError, ValueError) as error:
+        print(f"Impossibile avviare {APP_NAME}: {error}", file=sys.stderr)
+        return 1
+    print(f"{APP_NAME} disponibile su http://{host}:{port} (Ctrl+C per terminare)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nServer arrestato.")
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
