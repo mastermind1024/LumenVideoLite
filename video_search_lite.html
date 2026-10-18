@@ -46,7 +46,6 @@
     .input-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; padding: 0 0 12px; }
     .input-toolbar .field { flex: 1 1 300px; }
     .input-toolbar input { width: 100%; }
-    .input-toolbar .toggle-control { min-height: 38px; flex: 0 0 auto; }
     .toggle-control { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
     .toggle-control input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); }
     .mode-field[hidden] { display: none; }
@@ -58,11 +57,12 @@
     .status-line { display: flex; min-height: 38px; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
     .status-line.loading::before { width: 13px; height: 13px; border: 2px solid #cad8cd; border-top-color: var(--coral); border-radius: 50%; content: ""; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .workspace { display: grid; grid-template-columns: minmax(260px, .75fr) minmax(400px, 1.6fr); min-height: 520px; border: 1px solid var(--line); background: var(--paper); }
+    .workspace { display: grid; height: max(520px, calc(100vh - 280px), var(--workspace-content-height, 0px)); grid-template-columns: var(--list-pane-width, minmax(260px, .75fr)) 10px minmax(400px, 1.6fr); align-items: stretch; min-height: 520px; border: 1px solid var(--line); background: var(--paper); }
     .results-pane, .detail-pane { min-width: 0; }
-    .results-pane { border-right: 1px solid var(--line); }
+    .results-pane { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: visible; border-right: 0; }
+    .results-pane.list-collapsed { visibility: hidden; overflow: hidden; }
     .pane-heading { display: flex; min-height: 44px; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 800; }
-    .result-list { max-height: 720px; overflow: auto; }
+    .result-list { min-height: 0; flex: 0 0 auto; overflow: visible; }
     .result { display: grid; width: 100%; grid-template-columns: 86px minmax(0, 1fr); align-items: center; gap: 11px; padding: 10px; border: 0; border-bottom: 1px solid #e9ece6; background: transparent; color: inherit; text-align: left; }
     .result:hover { background: #f7f8f2; }
     .result.selected { background: #edf4eb; box-shadow: inset 3px 0 var(--green); }
@@ -70,27 +70,33 @@
     .result-title { display: block; overflow: hidden; margin-bottom: 5px; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
     .result-meta { display: block; color: var(--muted); font-size: 10px; }
     .list-empty, .detail-empty { display: grid; min-height: 180px; place-items: center; padding: 20px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
-    .detail-pane { padding: 15px; }
+    .detail-pane { display: flex; min-height: 0; flex-direction: column; overflow: visible; padding: 15px; }
     .detail-head { margin-bottom: 10px; }
     .detail-head h2 { overflow-wrap: anywhere; margin: 0 0 4px; font: 600 19px/1.2 Georgia, serif; }
     .detail-path { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; }
-    .video-frame { display: grid; width: 100%; min-height: 190px; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; background: #172722; }
+    .video-frame { display: grid; width: min(100%, 1920px); min-height: 0; flex: 0 0 auto; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; margin: 0 auto 18px; background: #172722; }
     .video-stage { width: 100%; height: 100%; overflow: hidden; border-radius: 4px; }
     video { display: block; width: 100%; height: 100%; aspect-ratio: 16 / 9; background: #172722; object-fit: contain; }
-    .thumb-strip { display: grid; height: 184px; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; margin: 8px 0 12px; overflow-y: auto; }
-    .thumb-strip.single-line { display: flex; align-items: start; overflow-x: auto; overflow-y: hidden; }
-    .thumb-strip.single-line .preview-thumb { width: min(22%, 180px); flex: 0 0 min(22%, 180px); }
-    .preview-thumb { position: relative; min-width: 0; overflow: hidden; padding: 0; border: 1px solid transparent; background: #e7ece5; }
+    .preview-panel { display: flex; height: auto; min-height: var(--preview-panel-height, 260px); flex: 0 0 auto; flex-direction: column; overflow: visible; }
+    .thumb-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-flow: row; gap: 6px; margin: 12px 0 14px; overflow: visible; }
+    .thumb-strip.single-line { display: flex; flex-wrap: nowrap; align-items: stretch; overflow: visible; }
+    .preview-thumb { position: relative; width: 100%; height: auto; min-width: 0; overflow: hidden; padding: 0; border: 1px solid transparent; background: #e7ece5; aspect-ratio: 16 / 9; }
+    .thumb-strip.single-line .preview-thumb { width: var(--preview-single-width, 284px); height: var(--preview-single-height, 160px); flex: 0 0 auto; aspect-ratio: 16 / 9; }
     .preview-thumb:hover, .preview-thumb:focus-visible { border-color: var(--coral); outline: 2px solid rgba(200, 95, 61, .24); }
-    .preview-thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
-    .preview-thumb { aspect-ratio: 16 / 9; }
+    .preview-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
     .preview-time { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; background: rgba(18, 34, 27, .82); color: white; font-size: 9px; font-variant-numeric: tabular-nums; }
-    .smart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 0 0 10px; border-bottom: 1px solid var(--line); }
+    .smart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 6px 0 2px; border-bottom: 1px solid var(--line); }
     .smart-toolbar progress { width: min(180px, 34vw); height: 8px; accent-color: var(--green); }
     .smart-status { flex: 1 1 180px; min-width: 0; color: var(--muted); font-size: 11px; }
+    .resize-handle { position: relative; z-index: 2; display: grid; flex: 0 0 10px; place-items: center; padding: 0; border: 0; background: #eef1ed; touch-action: none; }
+    .resize-handle::after { width: 2px; height: 100%; border-radius: 2px; background: #b7c3b9; content: ""; }
+    .resize-handle:hover, .resize-handle:focus-visible, .resize-handle.dragging { background: rgba(200, 95, 61, .12); }
+    .resize-handle:hover::after, .resize-handle:focus-visible::after, .resize-handle.dragging::after { background: var(--coral); }
+    .column-resizer { cursor: col-resize; }
+    .action-line { flex: 0 0 auto; }
     .action-line { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; overflow: visible; padding: 10px 0; border-bottom: 1px solid var(--line); }
     .playback-section { flex: 0 0 auto; margin: 0; padding: 0; border: 0; }
-    .playback-controls { display: flex; flex-wrap: nowrap; align-items: end; gap: 9px; }
+    .playback-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; }
     .control-group { display: grid; gap: 6px; }
     .seek-controls { display: flex; align-items: end; gap: 6px; }
     .seek-controls button { display: grid; width: 38px; height: 38px; min-width: 38px; place-items: center; padding: 0; }
@@ -117,14 +123,12 @@
     .settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .settings-help { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
-    .workspace.list-hidden { grid-template-columns: minmax(0, 1fr); }
-    .workspace.list-hidden .results-pane { display: none; }
-    .workspace.list-hidden .video-frame { width: min(100%, 1920px, calc((100vh - 280px) * 16 / 9)); min-height: 0; max-height: none; margin-inline: auto; }
     [data-desktop-picker][hidden] { display: none; }
     @media (max-width: 850px) {
-      .workspace { grid-template-columns: minmax(0, 1fr); }
+      .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(2, minmax(260px, 1fr)); }
       .results-pane { border-right: 0; border-bottom: 1px solid var(--line); }
-      .result-list { max-height: 260px; }
+      .column-resizer { display: none; }
+      .result-list { max-height: none; }
     }
     @media (max-width: 580px) {
       .shell { padding: 14px 10px 24px; }
@@ -132,9 +136,6 @@
       .settings-content { padding: 14px; }
       .settings-fields { grid-template-columns: 1fr; }
       .detail-pane { padding: 10px; }
-      .video-frame, video { min-height: 150px; }
-      .thumb-strip { height: 154px; }
-      .workspace.list-hidden .video-frame { width: min(100%, 1920px, calc((100vh - 240px) * 16 / 9)); min-height: 0; }
       .result { grid-template-columns: 74px minmax(0, 1fr); }
       .result img, .thumb-placeholder { width: 74px; height: 50px; }
     }
@@ -167,13 +168,13 @@
       </div>
       <button class="button primary" id="indexButton" type="button">Indicizza / aggiorna</button>
       <button class="quiet-button" id="clearCacheButton" type="button">Svuota cache</button>
-      <label class="toggle-control"><input id="showVideoList" type="checkbox" checked> Mostra elenco video</label>
     </section>
     <section class="workspace" aria-label="Libreria video">
       <section class="results-pane" aria-label="Elenco video">
         <div class="pane-heading"><span>VIDEO</span><span id="videoCount">0</span></div>
         <div class="result-list" id="resultList"><div class="list-empty">Caricamento catalogo…</div></div>
       </section>
+      <div class="resize-handle column-resizer" id="columnResizer" role="separator" aria-orientation="vertical" aria-label="Ridimensiona lista video e player" aria-valuemin="0" aria-valuemax="900" aria-valuenow="320" tabindex="0"></div>
       <section class="detail-pane" id="detailPane" aria-label="Player e azioni video">
         <div class="detail-empty">Seleziona un video dall’elenco</div>
       </section>
@@ -188,6 +189,8 @@
         <div class="settings-field"><label for="outputLinger">CARTELLA LINGER</label><input id="outputLinger" type="text" required><button type="button" class="quiet-button" data-desktop-picker data-picker-for="outputLinger" hidden>Scegli cartella…</button></div>
       </div>
       <p class="settings-help">Inserisci percorsi assoluti. Le cartelle di destinazione vengono create se necessario.</p>
+      <label class="toggle-control"><input id="thumbnailLayoutToggle" type="checkbox"> Anteprime su una riga</label>
+      <div class="settings-actions"><button class="quiet-button" id="resetLayoutButton" type="button">Ripristina layout predefinito</button></div>
       <div class="dialog-actions"><button class="quiet-button" id="closeSettings" type="button">Chiudi</button><button class="button" type="submit">Salva impostazioni</button></div>
     </form>
   </dialog>
@@ -206,8 +209,13 @@
     let smartJobPath = "";
     let smartLatestState = null;
     const smartControls = new Map();
+    const DEFAULT_PREVIEW_PANEL_HEIGHT = 260;
     let selectedThumbnailLayout = localStorage.getItem("lumen-thumbnail-layout") || "grid";
-    let showVideoList = localStorage.getItem("lumen-show-video-list") !== "false";
+    const storedListPaneWidth = localStorage.getItem("lumen-list-pane-width");
+    let listPaneWidth = storedListPaneWidth === null ? null : Number(storedListPaneWidth);
+    let previewStripObserver = null;
+    let workspaceContentObserver = null;
+    let workspaceFitQueued = false;
 
     async function request(url, options = {}) {
       const response = await fetch(url, options);
@@ -302,7 +310,9 @@
           empty.textContent = "Nessun video indicizzato. Scegli una cartella e avvia l’indicizzazione.";
           resultList.append(empty);
           selectedPath = "";
+          if (previewStripObserver) previewStripObserver.disconnect();
           $("#detailPane").innerHTML = '<div class="detail-empty">Seleziona un video dall’elenco</div>';
+          observeWorkspaceContent([$(".results-pane"), resultList, $("#detailPane")]);
           return;
         }
         videos.forEach(addResult);
@@ -338,12 +348,169 @@
     }
     function applyThumbnailLayout(strip) {
       strip.classList.toggle("single-line", selectedThumbnailLayout === "single");
+      updateThumbnailDimensions(strip);
     }
-    function applyViewOptions() {
-      $(".workspace").classList.toggle("list-hidden", !showVideoList);
-      $("#showVideoList").checked = showVideoList;
+    function updateThumbnailDimensions(strip) {
+      const panel = strip.closest(".preview-panel");
+      const toolbar = panel?.querySelector(".smart-toolbar");
+      if (!panel) return;
+      const requestedHeight = Number(panel.dataset.requestedHeight) || DEFAULT_PREVIEW_PANEL_HEIGHT;
+      const toolbarHeight = toolbar?.getBoundingClientRect().height || 0;
+      const availableWidth = Math.max(0, strip.clientWidth || panel.clientWidth);
+      const count = strip.querySelectorAll(".preview-thumb").length;
+      const gap = 6;
+      const previewSpacing = 32;
+      let minimumHeight;
+
+      if (count === 0) {
+        minimumHeight = toolbarHeight + 180 + previewSpacing;
+        strip.style.height = "180px";
+      } else if (selectedThumbnailLayout === "single") {
+        const width = Math.max(1, (availableWidth - gap * (count - 1)) / count);
+        const naturalHeight = width * 9 / 16;
+        minimumHeight = toolbarHeight + naturalHeight + previewSpacing;
+        const panelHeight = Math.max(requestedHeight, minimumHeight);
+        const height = Math.max(40, Math.min(naturalHeight, panelHeight - toolbarHeight - previewSpacing));
+        strip.style.height = `${height}px`;
+        strip.style.setProperty("--preview-single-height", `${height}px`);
+        strip.style.setProperty("--preview-single-width", `${width}px`);
+        panel.style.height = `${panelHeight}px`;
+        panel.style.minHeight = `${panelHeight}px`;
+      } else {
+        const columns = Math.min(count, 5, Math.max(1, Math.floor((availableWidth + gap) / (74 + gap))));
+        const rows = Math.ceil(count / columns);
+        const cellWidth = (availableWidth - gap * (columns - 1)) / columns;
+        const maxCellHeight = Math.max(1, cellWidth * 9 / 16);
+        minimumHeight = toolbarHeight + rows * 40 + previewSpacing;
+        const panelHeight = Math.max(requestedHeight, minimumHeight);
+        const cellHeight = Math.max(40, Math.min(maxCellHeight, (panelHeight - toolbarHeight - previewSpacing) / rows));
+        strip.style.gridTemplateColumns = `repeat(${columns}, ${cellHeight * 16 / 9}px)`;
+        strip.style.gridTemplateRows = `repeat(${rows}, ${cellHeight}px)`;
+        strip.style.height = `${rows * cellHeight + gap * (rows - 1)}px`;
+        panel.style.height = `${panelHeight}px`;
+        panel.style.minHeight = `${panelHeight}px`;
+      }
+      panel.dataset.contentMinHeight = String(minimumHeight);
+      scheduleWorkspaceFit();
+    }
+    function fitWorkspaceToContent() {
+      const workspace = $(".workspace");
+      const detailPane = $("#detailPane");
+      const resultsPane = $(".results-pane");
+      const baseHeight = Math.max(520, window.innerHeight - 280);
+      const contentHeight = Math.max(detailPane.scrollHeight, resultsPane.scrollHeight) + 2;
+      const requiredHeight = Math.max(baseHeight, contentHeight);
+      const currentHeight = Number.parseFloat(workspace.style.getPropertyValue("--workspace-content-height")) || 0;
+      if (Math.abs(currentHeight - requiredHeight) > 1) {
+        workspace.style.setProperty("--workspace-content-height", `${Math.ceil(requiredHeight)}px`);
+      }
+    }
+    function scheduleWorkspaceFit() {
+      if (workspaceFitQueued) return;
+      workspaceFitQueued = true;
+      requestAnimationFrame(() => {
+        workspaceFitQueued = false;
+        fitWorkspaceToContent();
+      });
+    }
+    function observeWorkspaceContent(nodes) {
+      if (workspaceContentObserver) workspaceContentObserver.disconnect();
+      workspaceContentObserver = new ResizeObserver(scheduleWorkspaceFit);
+      nodes.filter(Boolean).forEach((node) => workspaceContentObserver.observe(node));
+      scheduleWorkspaceFit();
+    }
+    function bindResizeHandle(handle, axis, getStartValue, getLimits, setValue) {
+      let activePointer = null;
+      let startPosition = 0;
+      let startValue = 0;
+      handle.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        activePointer = event.pointerId;
+        startPosition = axis === "x" ? event.clientX : event.clientY;
+        startValue = getStartValue();
+        handle.classList.add("dragging");
+        handle.setPointerCapture(activePointer);
+      });
+      handle.addEventListener("pointermove", (event) => {
+        if (activePointer !== event.pointerId) return;
+        const position = axis === "x" ? event.clientX : event.clientY;
+        const [minimum, maximum] = getLimits();
+        setValue(Math.max(minimum, Math.min(maximum, startValue + position - startPosition)));
+      });
+      const stopDragging = (event) => {
+        if (activePointer !== event.pointerId) return;
+        activePointer = null;
+        handle.classList.remove("dragging");
+      };
+      handle.addEventListener("pointerup", stopDragging);
+      handle.addEventListener("pointercancel", stopDragging);
+      handle.addEventListener("keydown", (event) => {
+        const negative = axis === "x" ? "ArrowLeft" : "ArrowUp";
+        const positive = axis === "x" ? "ArrowRight" : "ArrowDown";
+        if (event.key !== negative && event.key !== positive) return;
+        event.preventDefault();
+        const [minimum, maximum] = getLimits();
+        const delta = event.key === positive ? 16 : -16;
+        setValue(Math.max(minimum, Math.min(maximum, getStartValue() + delta)));
+      });
+    }
+    function setListPaneWidth(width) {
+      const workspace = $(".workspace");
+      workspace.style.setProperty("--list-pane-width", `${Math.round(width)}px`);
+      $(".results-pane").classList.toggle("list-collapsed", width < 12);
+      $("#columnResizer").setAttribute("aria-valuenow", String(Math.round(width)));
+      listPaneWidth = width;
+      localStorage.setItem("lumen-list-pane-width", String(Math.round(width)));
+    }
+    function bindColumnResizer() {
+      const workspace = $(".workspace");
+      const handle = $("#columnResizer");
+      const maximum = Math.max(0, workspace.clientWidth - 410);
+      handle.setAttribute("aria-valuemax", String(Math.round(maximum)));
+      if (listPaneWidth !== null && Number.isFinite(listPaneWidth)) {
+        setListPaneWidth(Math.max(0, Math.min(listPaneWidth, maximum)));
+      } else {
+        handle.setAttribute("aria-valuenow", String(Math.round($(".results-pane").getBoundingClientRect().width)));
+      }
+      bindResizeHandle(
+        handle,
+        "x",
+        () => $(".results-pane").getBoundingClientRect().width,
+        () => [0, Math.max(0, workspace.clientWidth - 410)],
+        setListPaneWidth,
+      );
+    }
+    function setPreviewPanelHeight(panel, height) {
+      const panelHeight = Math.max(160, Math.round(height));
+      panel.dataset.requestedHeight = String(panelHeight);
+      panel.style.setProperty("--preview-panel-height", `${panelHeight}px`);
+      const strip = panel.querySelector(".thumb-strip");
+      if (strip) updateThumbnailDimensions(strip);
+      scheduleWorkspaceFit();
+    }
+    function resetLayout() {
+      selectedThumbnailLayout = "grid";
+      listPaneWidth = null;
+      localStorage.removeItem("lumen-thumbnail-layout");
+      localStorage.removeItem("lumen-list-pane-width");
+      localStorage.removeItem("lumen-preview-panel-height");
+      localStorage.removeItem("lumen-show-video-list");
+      const workspace = $(".workspace");
+      workspace.style.removeProperty("--list-pane-width");
+      workspace.style.removeProperty("--workspace-content-height");
+      $(".results-pane").classList.remove("list-collapsed");
+      $("#thumbnailLayoutToggle").checked = false;
       document.querySelectorAll(".thumb-strip").forEach(applyThumbnailLayout);
+      const panel = $(".preview-panel");
+      if (panel) setPreviewPanelHeight(panel, DEFAULT_PREVIEW_PANEL_HEIGHT);
+      const columnHandle = $("#columnResizer");
+      if (columnHandle) {
+        columnHandle.setAttribute("aria-valuenow", String(Math.round($(".results-pane").getBoundingClientRect().width)));
+      }
+      scheduleWorkspaceFit();
+      notify("Layout predefinito ripristinato");
     }
+    bindColumnResizer();
     function renderSmartState(path, state) {
       const controls = smartControls.get(path);
       if (!controls) return;
@@ -419,6 +586,8 @@
         item.setAttribute("aria-pressed", String(videos[index]?.path === path));
       });
       const pane = $("#detailPane");
+      if (previewStripObserver) previewStripObserver.disconnect();
+      if (workspaceContentObserver) workspaceContentObserver.disconnect();
       smartControls.clear();
       pane.replaceChildren();
       const head = document.createElement("div");
@@ -495,18 +664,7 @@
       smartCancel.className = "quiet-button";
       smartCancel.textContent = "Annulla";
       smartCancel.hidden = true;
-      const singleLineLabel = document.createElement("label");
-      singleLineLabel.className = "toggle-control";
-      const singleLineToggle = document.createElement("input");
-      singleLineToggle.type = "checkbox";
-      singleLineToggle.checked = selectedThumbnailLayout === "single";
-      singleLineToggle.addEventListener("change", () => {
-        selectedThumbnailLayout = singleLineToggle.checked ? "single" : "grid";
-        localStorage.setItem("lumen-thumbnail-layout", selectedThumbnailLayout);
-        applyViewOptions();
-      });
-      singleLineLabel.append(singleLineToggle, document.createTextNode("Anteprime su una riga"));
-      smartToolbar.append(standardButton, smartButton, smartProgress, smartStatus, smartCancel, singleLineLabel);
+      smartToolbar.append(standardButton, smartButton, smartProgress, smartStatus, smartCancel);
       smartControls.set(video.path, {
         button: smartButton, progress: smartProgress, status: smartStatus, cancel: smartCancel,
       });
@@ -593,20 +751,6 @@
       playbackControls.append(seekGroup, speedField);
       playbackSection.append(playbackControls);
 
-      const actions = document.createElement("div");
-      actions.className = "detail-actions";
-      const externalButton = document.createElement("button");
-      externalButton.type = "button";
-      externalButton.className = "quiet-button";
-      externalButton.textContent = "Apri player esterno";
-      externalButton.addEventListener("click", async () => {
-        try {
-          await post("/api/open", { path: video.path });
-          notify("Apertura nel player di sistema richiesta");
-        } catch (error) { notify(error.message); }
-      });
-      actions.append(externalButton);
-
       const moveControls = document.createElement("div");
       moveControls.className = "move-controls";
       const outputLabel = document.createElement("span");
@@ -667,8 +811,20 @@
       moveControls.append(outputLabel, moveButtons);
       const actionLine = document.createElement("div");
       actionLine.className = "action-line";
-      actionLine.append(playbackSection, actions, moveControls);
-      pane.append(head, frame, thumbs, smartToolbar, actionLine);
+      actionLine.append(playbackSection, moveControls);
+      const previewPanel = document.createElement("section");
+      previewPanel.className = "preview-panel";
+      setPreviewPanelHeight(previewPanel, DEFAULT_PREVIEW_PANEL_HEIGHT);
+      previewPanel.append(thumbs, smartToolbar);
+      pane.append(head, frame, previewPanel, actionLine);
+      setPreviewPanelHeight(previewPanel, DEFAULT_PREVIEW_PANEL_HEIGHT);
+      applyThumbnailLayout(thumbs);
+      previewStripObserver = new ResizeObserver(() => updateThumbnailDimensions(thumbs));
+      previewStripObserver.observe(thumbs);
+      observeWorkspaceContent([
+        $(".results-pane"), resultList, pane, head, frame, previewPanel,
+        smartToolbar, actionLine,
+      ]);
     }
 
     function settingsPayload() {
@@ -698,10 +854,17 @@
         $("#outputTop").value = outputFolders.top;
         $("#outputMain").value = outputFolders.main;
         $("#outputLinger").value = outputFolders.linger;
+        $("#thumbnailLayoutToggle").checked = selectedThumbnailLayout === "single";
         $("#settingsDialog").showModal();
       } catch (error) { notify(error.message); }
     }
     $("#settingsButton").addEventListener("click", fillSettings);
+    $("#resetLayoutButton").addEventListener("click", resetLayout);
+    $("#thumbnailLayoutToggle").addEventListener("change", () => {
+      selectedThumbnailLayout = $("#thumbnailLayoutToggle").checked ? "single" : "grid";
+      localStorage.setItem("lumen-thumbnail-layout", selectedThumbnailLayout);
+      document.querySelectorAll(".thumb-strip").forEach(applyThumbnailLayout);
+    });
     $("#inputFolderPicker").addEventListener("click", () => chooseDesktopFolder("rootPath"));
     document.querySelectorAll("[data-picker-for]").forEach((button) => {
       button.addEventListener("click", () => chooseDesktopFolder(button.dataset.pickerFor));
@@ -734,14 +897,10 @@
         await loadState();
       } catch (error) { notify(error.message); }
     });
-    $("#showVideoList").addEventListener("change", () => {
-      showVideoList = $("#showVideoList").checked;
-      localStorage.setItem("lumen-show-video-list", String(showVideoList));
-      applyViewOptions();
-    });
-    applyViewOptions();
     loadState().then(loadVideos);
     setInterval(loadState, 1000);
   </script>
+</body>
+</html>  </script>
 </body>
 </html>

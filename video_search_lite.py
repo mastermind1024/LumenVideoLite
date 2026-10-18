@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import threading
@@ -925,18 +924,6 @@ class LocalWebRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "path": destination})
             elif self.path == "/api/delete":
                 app.delete_video(str(data.get("path", "")), confirmed=bool(data.get("confirmed", False)))
-                self.send_json({"ok": True})
-            elif self.path == "/api/open":
-                path = str(data.get("path", ""))
-                video = app.catalog.get_video(path)
-                if not video or not Path(path).is_file():
-                    raise ValueError("Video non trovato nel catalogo.")
-                if sys.platform.startswith("linux"):
-                    subprocess.Popen(["xdg-open", path])
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", path])
-                else:
-                    os.startfile(path)
                 self.send_json({"ok": True})
             else:
                 self.send_error(404)

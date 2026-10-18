@@ -176,9 +176,6 @@ public final class MainActivity extends Activity {
         actionLine.setOrientation(LinearLayout.HORIZONTAL);
         buildSeekGroup(actionLine);
         buildSpeedGroup(actionLine);
-        Button external = button("Apri player esterno");
-        external.setOnClickListener(view -> openExternalPlayer());
-        actionLine.addView(external, spaced(-2, dp(42), 0, 0, 8, 0));
         buildOutputGroup(actionLine);
         controlsScroll.addView(actionLine);
         page.addView(controlsScroll, spaced(-1, dp(66), 0, 8, 0, 9));
@@ -625,18 +622,6 @@ public final class MainActivity extends Activity {
         syncingSpeed = true;
         speedSpinner.setSelection(selected);
         syncingSpeed = false;
-    }
-
-    private void openExternalPlayer() {
-        if (selectedVideo == null) return;
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(selectedVideo.file.getUri(), mimeType(selectedVideo.name));
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivity(intent);
-        } catch (Exception error) {
-            Toast.makeText(this, "Nessun player esterno disponibile", Toast.LENGTH_LONG).show();
-        }
     }
 
     private void moveToOutput(String key) {
