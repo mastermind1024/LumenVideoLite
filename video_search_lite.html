@@ -77,7 +77,7 @@
     .video-frame { display: grid; width: min(100%, 1920px); min-height: 0; flex: 0 0 auto; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; margin: 0 auto 18px; background: #172722; }
     .video-stage { width: 100%; height: 100%; overflow: hidden; border-radius: 4px; }
     video { display: block; width: 100%; height: 100%; aspect-ratio: 16 / 9; background: #172722; object-fit: contain; }
-    .preview-panel { display: flex; height: auto; min-height: var(--preview-panel-height, 260px); flex: 0 0 auto; flex-direction: column; overflow: visible; }
+    .preview-panel { display: flex; height: auto; min-height: var(--preview-panel-height, 180px); flex: 0 0 auto; flex-direction: column; overflow: visible; }
     .thumb-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-flow: row; gap: 6px; margin: 12px 0 14px; overflow: visible; }
     .thumb-strip.single-line { display: flex; flex-wrap: nowrap; align-items: stretch; overflow: visible; }
     .preview-thumb { position: relative; width: 100%; height: auto; min-width: 0; overflow: hidden; padding: 0; border: 1px solid transparent; background: #e7ece5; aspect-ratio: 16 / 9; }
@@ -85,7 +85,7 @@
     .preview-thumb:hover, .preview-thumb:focus-visible { border-color: var(--coral); outline: 2px solid rgba(200, 95, 61, .24); }
     .preview-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
     .preview-time { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; background: rgba(18, 34, 27, .82); color: white; font-size: 9px; font-variant-numeric: tabular-nums; }
-    .smart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 6px 0 2px; border-bottom: 1px solid var(--line); }
+    .smart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 0 0 10px; border-bottom: 1px solid var(--line); }
     .smart-toolbar progress { width: min(180px, 34vw); height: 8px; accent-color: var(--green); }
     .smart-status { flex: 1 1 180px; min-width: 0; color: var(--muted); font-size: 11px; }
     .resize-handle { position: relative; z-index: 2; display: grid; flex: 0 0 10px; place-items: center; padding: 0; border: 0; background: #eef1ed; touch-action: none; }
@@ -96,7 +96,7 @@
     .action-line { flex: 0 0 auto; }
     .action-line { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; overflow: visible; padding: 10px 0; border-bottom: 1px solid var(--line); }
     .playback-section { flex: 0 0 auto; margin: 0; padding: 0; border: 0; }
-    .playback-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; }
+    .playback-controls { display: flex; flex-wrap: nowrap; align-items: end; gap: 9px; }
     .control-group { display: grid; gap: 6px; }
     .seek-controls { display: flex; align-items: end; gap: 6px; }
     .seek-controls button { display: grid; width: 38px; height: 38px; min-width: 38px; place-items: center; padding: 0; }
@@ -107,7 +107,7 @@
     .move-controls { display: grid; min-width: 0; max-width: 100%; flex: 0 1 auto; align-content: end; justify-items: start; gap: 6px; }
     .quick-move-buttons { display: flex; max-width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: 5px; }
     .quick-move-buttons button { min-width: 0; padding: 8px 7px; font-size: 10px; white-space: nowrap; }
-    .trash-button { display: grid; width: 38px; min-width: 38px; height: 38px; place-items: center; padding: 0; border-color: #e1b2ae; color: #b42318; }
+    .trash-button { display: grid; width: 36px; height: 38px; flex: 0 0 36px; place-items: center; margin-left: 2px; padding: 0; border-color: #e1b2ae; color: #b42318; }
     .trash-button:hover { border-color: #cf7770; background: #fff2f0; color: #8d1c14; }
     .trash-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .toast { position: fixed; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 36px)); padding: 11px 14px; background: var(--green-dark); color: white; font-size: 12px; box-shadow: 0 5px 20px rgba(20, 45, 35, .18); opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }
@@ -209,7 +209,7 @@
     let smartJobPath = "";
     let smartLatestState = null;
     const smartControls = new Map();
-    const DEFAULT_PREVIEW_PANEL_HEIGHT = 260;
+    const DEFAULT_PREVIEW_PANEL_HEIGHT = 180;
     let selectedThumbnailLayout = localStorage.getItem("lumen-thumbnail-layout") || "grid";
     const storedListPaneWidth = localStorage.getItem("lumen-list-pane-width");
     let listPaneWidth = storedListPaneWidth === null ? null : Number(storedListPaneWidth);
@@ -356,21 +356,27 @@
       if (!panel) return;
       const requestedHeight = Number(panel.dataset.requestedHeight) || DEFAULT_PREVIEW_PANEL_HEIGHT;
       const toolbarHeight = toolbar?.getBoundingClientRect().height || 0;
+      const actionLine = panel.querySelector(".action-line");
+      const actionLineHeight = actionLine?.getBoundingClientRect().height || 0;
       const availableWidth = Math.max(0, strip.clientWidth || panel.clientWidth);
       const count = strip.querySelectorAll(".preview-thumb").length;
       const gap = 6;
       const previewSpacing = 32;
+      const fixedContentHeight = toolbarHeight + actionLineHeight + previewSpacing;
       let minimumHeight;
 
       if (count === 0) {
-        minimumHeight = toolbarHeight + 180 + previewSpacing;
+        minimumHeight = fixedContentHeight + 180;
         strip.style.height = "180px";
+        const panelHeight = Math.max(requestedHeight, minimumHeight);
+        panel.style.height = `${panelHeight}px`;
+        panel.style.minHeight = `${panelHeight}px`;
       } else if (selectedThumbnailLayout === "single") {
         const width = Math.max(1, (availableWidth - gap * (count - 1)) / count);
         const naturalHeight = width * 9 / 16;
-        minimumHeight = toolbarHeight + naturalHeight + previewSpacing;
+        minimumHeight = fixedContentHeight + naturalHeight;
         const panelHeight = Math.max(requestedHeight, minimumHeight);
-        const height = Math.max(40, Math.min(naturalHeight, panelHeight - toolbarHeight - previewSpacing));
+        const height = Math.max(40, Math.min(naturalHeight, panelHeight - fixedContentHeight));
         strip.style.height = `${height}px`;
         strip.style.setProperty("--preview-single-height", `${height}px`);
         strip.style.setProperty("--preview-single-width", `${width}px`);
@@ -381,9 +387,9 @@
         const rows = Math.ceil(count / columns);
         const cellWidth = (availableWidth - gap * (columns - 1)) / columns;
         const maxCellHeight = Math.max(1, cellWidth * 9 / 16);
-        minimumHeight = toolbarHeight + rows * 40 + previewSpacing;
+        minimumHeight = fixedContentHeight + rows * 40;
         const panelHeight = Math.max(requestedHeight, minimumHeight);
-        const cellHeight = Math.max(40, Math.min(maxCellHeight, (panelHeight - toolbarHeight - previewSpacing) / rows));
+        const cellHeight = Math.max(40, Math.min(maxCellHeight, (panelHeight - fixedContentHeight) / rows));
         strip.style.gridTemplateColumns = `repeat(${columns}, ${cellHeight * 16 / 9}px)`;
         strip.style.gridTemplateRows = `repeat(${rows}, ${cellHeight}px)`;
         strip.style.height = `${rows * cellHeight + gap * (rows - 1)}px`;
@@ -398,7 +404,17 @@
       const detailPane = $("#detailPane");
       const resultsPane = $(".results-pane");
       const baseHeight = Math.max(520, window.innerHeight - 280);
-      const contentHeight = Math.max(detailPane.scrollHeight, resultsPane.scrollHeight) + 2;
+      const measureContentHeight = (container) => {
+        const containerTop = container.getBoundingClientRect().top;
+        const paddingBottom = Number.parseFloat(getComputedStyle(container).paddingBottom) || 0;
+        const childrenBottom = [...container.children].reduce((bottom, child) => {
+          const childStyle = getComputedStyle(child);
+          const marginBottom = Number.parseFloat(childStyle.marginBottom) || 0;
+          return Math.max(bottom, child.getBoundingClientRect().bottom - containerTop + marginBottom);
+        }, 0);
+        return childrenBottom + paddingBottom;
+      };
+      const contentHeight = Math.max(measureContentHeight(detailPane), measureContentHeight(resultsPane)) + 2;
       const requiredHeight = Math.max(baseHeight, contentHeight);
       const currentHeight = Number.parseFloat(workspace.style.getPropertyValue("--workspace-content-height")) || 0;
       if (Math.abs(currentHeight - requiredHeight) > 1) {
@@ -814,9 +830,8 @@
       actionLine.append(playbackSection, moveControls);
       const previewPanel = document.createElement("section");
       previewPanel.className = "preview-panel";
-      setPreviewPanelHeight(previewPanel, DEFAULT_PREVIEW_PANEL_HEIGHT);
-      previewPanel.append(thumbs, smartToolbar);
-      pane.append(head, frame, previewPanel, actionLine);
+      previewPanel.append(thumbs, smartToolbar, actionLine);
+      pane.append(head, frame, previewPanel);
       setPreviewPanelHeight(previewPanel, DEFAULT_PREVIEW_PANEL_HEIGHT);
       applyThumbnailLayout(thumbs);
       previewStripObserver = new ResizeObserver(() => updateThumbnailDimensions(thumbs));
