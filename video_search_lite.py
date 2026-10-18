@@ -9,10 +9,13 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
+import uuid
 from pathlib import Path
 from send2trash import send2trash
 from urllib.parse import parse_qs, quote, urlsplit
+from smart_thumbnail_generator import AnalysisCancelledError, SmartThumbnailGenerator
 
 APP_NAME = "Lumen Video Lite"
 VIDEO_EXTENSIONS = {".avi", ".mkv", ".mov", ".mp4", ".m4v", ".webm", ".wmv"}
@@ -73,12 +76,12 @@ def preview_cache_key(path: str) -> str:
 
 
 def preview_index(path: Path) -> int:
-    match = re.fullmatch(r".+?_(\d+)(?:_\d+)?\.png", path.name)
+    match = re.fullmatch(r".+?_(\d+)(?:_\d+)?(?:_smart_[a-f0-9]+)?\.png", path.name)
     return int(match.group(1)) if match else 0
 
 
 def preview_time(path: Path) -> float:
-    match = re.fullmatch(r".+?_(\d+)(?:_(\d+))?\.png", path.name)
+    match = re.fullmatch(r".+?_(\d+)(?:_(\d+))?(?:_smart_[a-f0-9]+)?\.png", path.name)
     return int(match.group(2)) / 1000 if match and match.group(2) else 0.0
 
 
@@ -87,10 +90,14 @@ def thumbnail_paths(cache_dir: Path, path: str) -> list[Path]:
     paths = cache_dir.glob(f"{prefix}_*.png")
 
     def sort_key(item: Path) -> tuple[int, int]:
-        match = re.fullmatch(rf"{re.escape(prefix)}_(\d+)(?:_(\d+))?\.png", item.name)
+        match = re.fullmatch(rf"{re.escape(prefix)}_(\d+)(?:_(\d+))?(?:_smart_[a-f0-9]+)?\.png", item.name)
         return (int(match.group(1)), int(match.group(2) or 0)) if match else (0, 0)
 
     return sorted(paths, key=sort_key)
+
+
+def smart_manifest_path(cache_dir: Path, path: str) -> Path:
+    return cache_dir / f"{preview_cache_key(path)}_smart.json"
 
 
 def decoder_available() -> bool:
@@ -136,6 +143,7 @@ def create_previews(path: str, cache_dir: Path, use_gpu: bool = False) -> dict[s
         count = min(THUMBNAIL_COUNT, frame_count) if frame_count > 0 else THUMBNAIL_COUNT
         cache_dir.mkdir(parents=True, exist_ok=True)
         prefix = preview_cache_key(path)
+        smart_manifest_path(cache_dir, path).unlink(missing_ok=True)
         for old_path in cache_dir.glob(f"{prefix}_*.png"):
             old_path.unlink(missing_ok=True)
         for index in range(count):
@@ -291,6 +299,8 @@ class LocalWebApp:
         self.output_dir = (Path.cwd() / "output").resolve()
         self.cuda_available = decoder_available()
         self.lock = threading.Lock()
+        self.smart_job: dict[str, object] | None = None
+        self.smart_cancel: threading.Event | None = None
         self.state: dict[str, object] = {
             "running": False,
             "message": "Scegli una cartella e avvia l’indicizzazione",
@@ -343,13 +353,133 @@ class LocalWebApp:
 
     def clear_preview_cache(self) -> int:
         with self.lock:
-            if self.state["running"]:
-                raise RuntimeError("Attendi la fine dell’indicizzazione prima di svuotare la cache.")
+            if self.state["running"] or self.smart_job and self.smart_job["running"]:
+                raise RuntimeError("Attendi la fine dell’elaborazione prima di svuotare la cache.")
         removed = 0
-        for preview in self.catalog.cache_dir.glob("*.png"):
+        for preview in (*self.catalog.cache_dir.glob("*.png"), *self.catalog.cache_dir.glob("*_smart.json")):
             preview.unlink(missing_ok=True)
             removed += 1
         return removed
+
+    def start_smart_generation(self, path: str) -> str:
+        video = self.catalog.get_video(path)
+        if not video or video["missing"] or video["archived"] or not Path(path).is_file():
+            raise ValueError("Video non trovato o non disponibile.")
+        with self.lock:
+            if self.state["running"]:
+                raise RuntimeError("Attendi la fine dell’indicizzazione prima di rigenerare le anteprime.")
+            if self.smart_job and self.smart_job["running"]:
+                raise RuntimeError("È già in corso una rigenerazione smart.")
+            job_id = uuid.uuid4().hex
+            cancel_event = threading.Event()
+            self.smart_cancel = cancel_event
+            self.smart_job = {
+                "jobId": job_id,
+                "path": path,
+                "running": True,
+                "progress": 0,
+                "message": "Preparazione analisi…",
+                "status": "running",
+            }
+        threading.Thread(
+            target=self._smart_worker,
+            args=(path, job_id, cancel_event),
+            daemon=True,
+            name="smart-thumbnail-generator",
+        ).start()
+        return job_id
+
+    def _smart_worker(self, path: str, job_id: str, cancel_event: threading.Event) -> None:
+        prefix = preview_cache_key(path)
+        temporary_dir = Path(tempfile.mkdtemp(prefix="lumen-smart-", dir=self.catalog.cache_dir))
+        published: list[Path] = []
+
+        def report(progress: int, message: str) -> None:
+            with self.lock:
+                if self.smart_job and self.smart_job["jobId"] == job_id:
+                    self.smart_job.update(progress=progress, message=message)
+
+        try:
+            generated = SmartThumbnailGenerator().generate(path, temporary_dir, cancel_event, report)
+            if cancel_event.is_set():
+                raise AnalysisCancelledError("Analisi annullata.")
+            if not generated:
+                with self.lock:
+                    self.smart_job.update(
+                        running=False, progress=100,
+                        message="Nessuna anteprima affidabile trovata; anteprime precedenti conservate.",
+                        status="no_results",
+                    )
+                return
+
+            previous = thumbnail_paths(self.catalog.cache_dir, path)
+            previews = []
+            for index, item in enumerate(generated):
+                timestamp = float(item["timestamp"])
+                filename = f"{prefix}_{index:04d}_{int(timestamp * 1000):012d}_smart_{job_id[:8]}.png"
+                target = self.catalog.cache_dir / filename
+                os.replace(item["thumbnailPath"], target)
+                published.append(target)
+                previews.append({
+                    "index": index,
+                    "frameIndex": int(item["frameIndex"]),
+                    "time": timestamp,
+                    "personId": item["personId"],
+                    "eventType": item["eventType"],
+                    "changeScore": float(item["changeScore"]),
+                    "filename": filename,
+                })
+            if cancel_event.is_set():
+                raise AnalysisCancelledError("Analisi annullata.")
+
+            manifest = smart_manifest_path(self.catalog.cache_dir, path)
+            staged_manifest = temporary_dir / "manifest.json"
+            staged_manifest.write_text(json.dumps({"version": 1, "previews": previews}), encoding="utf-8")
+            with self.lock:
+                if cancel_event.is_set():
+                    raise AnalysisCancelledError("Analisi annullata.")
+                os.replace(staged_manifest, manifest)
+                self.smart_job.update(
+                    running=False, progress=100,
+                    message=f"Completato: {len(previews)} anteprime smart.", status="completed",
+                )
+            published.clear()
+            current_names = {item["filename"] for item in previews}
+            for old_preview in previous:
+                if old_preview.name not in current_names:
+                    try:
+                        old_preview.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+        except AnalysisCancelledError as error:
+            for preview in published:
+                preview.unlink(missing_ok=True)
+            with self.lock:
+                self.smart_job.update(running=False, message=str(error), status="cancelled")
+        except Exception as error:
+            for preview in published:
+                preview.unlink(missing_ok=True)
+            with self.lock:
+                self.smart_job.update(
+                    running=False,
+                    message=f"Analisi smart non riuscita: {error}. Anteprime precedenti conservate.",
+                    status="failed",
+                )
+        finally:
+            shutil.rmtree(temporary_dir, ignore_errors=True)
+
+    def smart_job_status(self, job_id: str) -> dict[str, object]:
+        with self.lock:
+            if not self.smart_job or self.smart_job["jobId"] != job_id:
+                raise ValueError("Elaborazione smart non trovata.")
+            return dict(self.smart_job)
+
+    def cancel_smart_generation(self, job_id: str) -> None:
+        with self.lock:
+            if not self.smart_job or self.smart_job["jobId"] != job_id:
+                raise ValueError("Elaborazione smart non trovata.")
+            if self.smart_job["running"] and self.smart_cancel:
+                self.smart_cancel.set()
 
     def start_index(self, root_text: str, mode: str = "CPU") -> None:
         root = Path(root_text).expanduser().resolve()
@@ -360,6 +490,8 @@ class LocalWebApp:
         with self.lock:
             if self.state["running"]:
                 raise RuntimeError("Un’indicizzazione è già in corso.")
+            if self.smart_job and self.smart_job["running"]:
+                raise RuntimeError("Attendi la fine della rigenerazione smart.")
             self.root = str(root)
             self.state.update(running=True, message="Scansione della cartella in corso…")
         use_gpu = mode == "GPU" and self.cuda_available
@@ -413,20 +545,47 @@ class LocalWebApp:
         videos = self.catalog.list_videos(self.root)
         for video in videos:
             path = str(video["path"])
-            video["thumbnails"] = [
-                {
-                    "index": preview_index(image),
-                    "time": preview_time(image),
-                    "url": (
-                        f"/api/thumbnail?path={quote(path, safe='')}&index={preview_index(image)}"
-                        f"&v={image.stat().st_mtime_ns}"
-                    ),
-                }
-                for image in thumbnail_paths(self.catalog.cache_dir, path)[:THUMBNAIL_COUNT]
-            ]
+            images = thumbnail_paths(self.catalog.cache_dir, path)
+            manifest_path = smart_manifest_path(self.catalog.cache_dir, path)
+            try:
+                smart_previews = json.loads(manifest_path.read_text(encoding="utf-8"))["previews"]
+                if not all((self.catalog.cache_dir / item["filename"]).is_file() for item in smart_previews):
+                    raise ValueError("Manifest anteprime incompleto")
+            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+                smart_previews = None
+            if smart_previews is not None:
+                video["thumbnails"] = []
+                for item in smart_previews:
+                    image_url = (
+                        f"/api/thumbnail?path={quote(path, safe='')}&index={item['index']}"
+                        f"&v={int((self.catalog.cache_dir / item['filename']).stat().st_mtime_ns)}"
+                    )
+                    video["thumbnails"].append({
+                        **{key: item[key] for key in ("frameIndex", "personId", "eventType", "changeScore")},
+                        "index": item["index"],
+                        "time": item["time"],
+                        "timestamp": item["time"],
+                        "url": image_url,
+                        "imageUrl": image_url,
+                    })
+            else:
+                video["thumbnails"] = [
+                    {
+                        "index": preview_index(image),
+                        "time": preview_time(image),
+                        "url": (
+                            f"/api/thumbnail?path={quote(path, safe='')}&index={preview_index(image)}"
+                            f"&v={image.stat().st_mtime_ns}"
+                        ),
+                    }
+                    for image in images[:THUMBNAIL_COUNT]
+                ]
         return videos
 
     def move_video_to_output(self, path: str, subfolder: str) -> str:
+        with self.lock:
+            if self.smart_job and self.smart_job["running"] and self.smart_job["path"] == path:
+                raise RuntimeError("Attendi la fine dell’analisi smart prima di spostare il video.")
         if subfolder not in self.output_folders:
             raise ValueError("Scegli una delle cartelle di output disponibili.")
         video = self.catalog.get_video(path)
@@ -456,9 +615,25 @@ class LocalWebApp:
                 image.rename(image.with_name(new_prefix + image.name[len(old_prefix):]))
             except OSError:
                 pass
+        old_manifest = smart_manifest_path(self.catalog.cache_dir, path)
+        new_manifest = smart_manifest_path(self.catalog.cache_dir, new_path)
+        if old_manifest.exists():
+            try:
+                manifest = json.loads(old_manifest.read_text(encoding="utf-8"))
+                manifest["previews"] = [
+                    {**item, "filename": item["filename"].replace(old_prefix, new_prefix, 1)}
+                    for item in manifest["previews"]
+                ]
+                new_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+                old_manifest.unlink(missing_ok=True)
+            except (OSError, ValueError, KeyError, TypeError):
+                old_manifest.unlink(missing_ok=True)
         return new_path
 
     def trash_video(self, path: str, permanent_confirmed: bool = False) -> None:
+        with self.lock:
+            if self.smart_job and self.smart_job["running"] and self.smart_job["path"] == path:
+                raise RuntimeError("Attendi la fine dell’analisi smart prima di rimuovere il video.")
         video = self.catalog.get_video(path)
         source = Path(path).resolve()
         if not video or video["missing"] or video["archived"] or not source.is_file():
@@ -472,6 +647,7 @@ class LocalWebApp:
         self.catalog.mark_trashed(path)
         for preview in thumbnail_paths(self.catalog.cache_dir, path):
             preview.unlink(missing_ok=True)
+        smart_manifest_path(self.catalog.cache_dir, path).unlink(missing_ok=True)
 
 
 class LocalWebServer(http.server.ThreadingHTTPServer):
@@ -526,6 +702,12 @@ class LocalWebRequestHandler(http.server.BaseHTTPRequestHandler):
         elif request.path == "/api/videos":
             videos = app.video_items()
             self.send_json({"videos": videos, "count": len(videos)})
+        elif request.path == "/api/smart/status":
+            job_id = parse_qs(request.query).get("job_id", [""])[0]
+            try:
+                self.send_json(app.smart_job_status(job_id))
+            except ValueError as error:
+                self.send_json({"error": str(error)}, 404)
         elif request.path == "/api/thumbnail":
             params = parse_qs(request.query)
             path = params.get("path", [""])[0]
@@ -603,6 +785,12 @@ class LocalWebRequestHandler(http.server.BaseHTTPRequestHandler):
             if self.path == "/api/index":
                 app.start_index(str(data.get("root", "")), str(data.get("mode", "CPU")))
                 self.send_json({"ok": True}, 202)
+            elif self.path == "/api/smart/start":
+                job_id = app.start_smart_generation(str(data.get("path", "")))
+                self.send_json({"ok": True, "jobId": job_id}, 202)
+            elif self.path == "/api/smart/cancel":
+                app.cancel_smart_generation(str(data.get("jobId", "")))
+                self.send_json({"ok": True})
             elif self.path == "/api/settings":
                 result = app.save_settings(
                     str(data.get("input_root", "")),
