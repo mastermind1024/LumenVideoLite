@@ -14,6 +14,6 @@ APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Uso locale
 
-Apri **Impostazioni** per scegliere una cartella dal selettore documenti Android, configurare i percorsi TOPLESS/NUDE/LINGERIE e svuotare la cache anteprime. L’app mantiene il permesso alla cartella sul dispositivo, crea cinque anteprime per video, riproduce con i controlli Media3 e usa il decoder hardware del telefono quando disponibile. Le cartelle output vengono create all’interno della cartella selezionata.
+Apri **Impostazioni** per scegliere input e cartelle di destinazione con il selettore documenti Android. I permessi alle cartelle selezionate vengono mantenuti sul dispositivo. Le destinazioni iniziali sono `1_Top`, `2_Main` e `3_Linger`; l’app genera cinque anteprime standard e riproduce con i controlli Media3, usando il decoder hardware quando disponibile.
 
-La cancellazione usa l’API del provider documenti. Quando il provider non espone un cestino, l’app avvisa che l’operazione è definitiva e chiede conferma prima di eliminare il file.
+L’eliminazione è sempre definitiva: l’app chiede conferma prima di rimuovere il video tramite il provider documenti. Non è previsto l’invio al cestino.

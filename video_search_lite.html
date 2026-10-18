@@ -43,6 +43,12 @@
     .field label, .group-label { color: var(--muted); font-size: 10px; font-weight: 800; }
     input, select { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #cfd8cf; border-radius: 3px; outline: none; background: white; color: var(--ink); }
     input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(40, 107, 84, .12); }
+    .input-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; padding: 0 0 12px; }
+    .input-toolbar .field { flex: 1 1 300px; }
+    .input-toolbar input { width: 100%; }
+    .input-toolbar .toggle-control { min-height: 38px; flex: 0 0 auto; }
+    .toggle-control { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .toggle-control input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); }
     .mode-field[hidden] { display: none; }
     .button, .quiet-button { min-height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 12px; font-weight: 700; transition: background .15s, border-color .15s; }
     .button:hover, .quiet-button:hover { border-color: #8ca99a; background: #f4faf4; }
@@ -68,13 +74,16 @@
     .detail-head { margin-bottom: 10px; }
     .detail-head h2 { overflow-wrap: anywhere; margin: 0 0 4px; font: 600 19px/1.2 Georgia, serif; }
     .detail-path { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; }
-    .video-frame { display: grid; min-height: 190px; max-height: 440px; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; background: #172722; }
+    .video-frame { display: grid; width: 100%; min-height: 190px; aspect-ratio: 16 / 9; place-items: center; overflow: hidden; background: #172722; }
     .video-stage { width: 100%; height: 100%; overflow: hidden; border-radius: 4px; }
-    video { display: block; width: 100%; max-height: 440px; aspect-ratio: 16 / 9; background: #172722; object-fit: contain; }
-    .thumb-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 8px 0 12px; }
+    video { display: block; width: 100%; height: 100%; aspect-ratio: 16 / 9; background: #172722; object-fit: contain; }
+    .thumb-strip { display: grid; height: 184px; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); align-content: start; gap: 6px; margin: 8px 0 12px; overflow-y: auto; }
+    .thumb-strip.single-line { display: flex; align-items: start; overflow-x: auto; overflow-y: hidden; }
+    .thumb-strip.single-line .preview-thumb { width: min(22%, 180px); flex: 0 0 min(22%, 180px); }
     .preview-thumb { position: relative; min-width: 0; overflow: hidden; padding: 0; border: 1px solid transparent; background: #e7ece5; }
     .preview-thumb:hover, .preview-thumb:focus-visible { border-color: var(--coral); outline: 2px solid rgba(200, 95, 61, .24); }
     .preview-thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+    .preview-thumb { aspect-ratio: 16 / 9; }
     .preview-time { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; background: rgba(18, 34, 27, .82); color: white; font-size: 9px; font-variant-numeric: tabular-nums; }
     .smart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 0 0 10px; border-bottom: 1px solid var(--line); }
     .smart-toolbar progress { width: min(180px, 34vw); height: 8px; accent-color: var(--green); }
@@ -92,7 +101,7 @@
     .move-controls { display: grid; min-width: 0; max-width: 100%; flex: 0 1 auto; align-content: end; justify-items: start; gap: 6px; }
     .quick-move-buttons { display: flex; max-width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: 5px; }
     .quick-move-buttons button { min-width: 0; padding: 8px 7px; font-size: 10px; white-space: nowrap; }
-    .trash-button { display: grid; width: 36px; height: 38px; flex: 0 0 36px; place-items: center; margin-left: 2px; padding: 0; border-color: #e1b2ae; color: #b42318; }
+    .trash-button { display: grid; width: 38px; min-width: 38px; height: 38px; place-items: center; padding: 0; border-color: #e1b2ae; color: #b42318; }
     .trash-button:hover { border-color: #cf7770; background: #fff2f0; color: #8d1c14; }
     .trash-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .toast { position: fixed; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 36px)); padding: 11px 14px; background: var(--green-dark); color: white; font-size: 12px; box-shadow: 0 5px 20px rgba(20, 45, 35, .18); opacity: 0; pointer-events: none; transform: translateY(8px); transition: .2s; }
@@ -101,13 +110,17 @@
     dialog::backdrop { background: rgba(22, 42, 34, .42); }
     .settings-content { display: grid; gap: 14px; padding: 20px; }
     .settings-content h2 { margin: 0; font: 600 21px Georgia, serif; }
-    .settings-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .settings-fields { display: grid; grid-template-columns: 1fr; gap: 10px; }
     .settings-field { display: grid; min-width: 0; gap: 6px; }
     .settings-field label { color: var(--muted); font-size: 10px; font-weight: 800; }
     .settings-field input { width: 100%; }
     .settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .settings-help { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .workspace.list-hidden { grid-template-columns: minmax(0, 1fr); }
+    .workspace.list-hidden .results-pane { display: none; }
+    .workspace.list-hidden .video-frame { width: min(100%, 1920px, calc((100vh - 280px) * 16 / 9)); min-height: 0; max-height: none; margin-inline: auto; }
+    [data-desktop-picker][hidden] { display: none; }
     @media (max-width: 850px) {
       .workspace { grid-template-columns: minmax(0, 1fr); }
       .results-pane { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -120,6 +133,8 @@
       .settings-fields { grid-template-columns: 1fr; }
       .detail-pane { padding: 10px; }
       .video-frame, video { min-height: 150px; }
+      .thumb-strip { height: 154px; }
+      .workspace.list-hidden .video-frame { width: min(100%, 1920px, calc((100vh - 240px) * 16 / 9)); min-height: 0; }
       .result { grid-template-columns: 74px minmax(0, 1fr); }
       .result img, .thumb-placeholder { width: 74px; height: 50px; }
     }
@@ -144,6 +159,16 @@
 
     <div class="status-line" id="statusLine" role="status" aria-live="polite">Connessione al catalogo…</div>
 
+    <section class="input-toolbar" aria-label="Cartella input e indicizzazione">
+      <div class="field">
+        <label class="group-label" for="rootPath">CARTELLE INPUT</label>
+        <input id="rootPath" type="text" spellcheck="false" required aria-label="Percorso assoluto cartella input">
+        <button class="quiet-button" id="inputFolderPicker" type="button" data-desktop-picker hidden>Scegli cartella…</button>
+      </div>
+      <button class="button primary" id="indexButton" type="button">Indicizza / aggiorna</button>
+      <button class="quiet-button" id="clearCacheButton" type="button">Svuota cache</button>
+      <label class="toggle-control"><input id="showVideoList" type="checkbox" checked> Mostra elenco video</label>
+    </section>
     <section class="workspace" aria-label="Libreria video">
       <section class="results-pane" aria-label="Elenco video">
         <div class="pane-heading"><span>VIDEO</span><span id="videoCount">0</span></div>
@@ -157,17 +182,12 @@
   <dialog id="settingsDialog">
     <form class="settings-content" id="settingsForm">
       <h2>Impostazioni</h2>
-      <div class="settings-field"><label for="rootPath">CARTELLE INPUT</label><input id="rootPath" type="text" spellcheck="false" required></div>
       <div class="settings-fields">
-        <div class="settings-field"><label for="outputTopless">CARTELLA TOPLESS</label><input id="outputTopless" type="text" value="1_TOPLESS" required></div>
-        <div class="settings-field"><label for="outputNude">CARTELLA NUDE</label><input id="outputNude" type="text" value="2_NUDE" required></div>
-        <div class="settings-field"><label for="outputLingerie">CARTELLA LINGERIE</label><input id="outputLingerie" type="text" value="3_LINGERIE" required></div>
+        <div class="settings-field"><label for="outputTop">CARTELLA TOP</label><input id="outputTop" type="text" required><button type="button" class="quiet-button" data-desktop-picker data-picker-for="outputTop" hidden>Scegli cartella…</button></div>
+        <div class="settings-field"><label for="outputMain">CARTELLA MAIN</label><input id="outputMain" type="text" required><button type="button" class="quiet-button" data-desktop-picker data-picker-for="outputMain" hidden>Scegli cartella…</button></div>
+        <div class="settings-field"><label for="outputLinger">CARTELLA LINGER</label><input id="outputLinger" type="text" required><button type="button" class="quiet-button" data-desktop-picker data-picker-for="outputLinger" hidden>Scegli cartella…</button></div>
       </div>
-      <p class="settings-help">I percorsi delle cartelle sono relativi a <code>output/</code>.</p>
-      <div class="settings-actions">
-        <button class="button primary" id="indexButton" type="button">Indicizza / aggiorna</button>
-        <button class="quiet-button" id="clearCacheButton" type="button">Svuota cache anteprime</button>
-      </div>
+      <p class="settings-help">Inserisci percorsi assoluti. Le cartelle di destinazione vengono create se necessario.</p>
       <div class="dialog-actions"><button class="quiet-button" id="closeSettings" type="button">Chiudi</button><button class="button" type="submit">Salva impostazioni</button></div>
     </form>
   </dialog>
@@ -180,12 +200,14 @@
     let selectedPath = "";
     let toastTimer;
     let wasRunning = false;
-    let permanentTrashConfirmationRequired = false;
-    let outputFolders = { topless: "1_TOPLESS", nude: "2_NUDE", lingerie: "3_LINGERIE" };
+    let desktopMode = false;
+    let outputFolders = { top: "", main: "", linger: "" };
     let smartJobId = "";
     let smartJobPath = "";
     let smartLatestState = null;
     const smartControls = new Map();
+    let selectedThumbnailLayout = localStorage.getItem("lumen-thumbnail-layout") || "grid";
+    let showVideoList = localStorage.getItem("lumen-show-video-list") !== "false";
 
     async function request(url, options = {}) {
       const response = await fetch(url, options);
@@ -222,9 +244,13 @@
       line.textContent = `${state.message} · ${state.count} video`;
       line.classList.toggle("loading", Boolean(state.running));
       $("#indexButton").disabled = Boolean(state.running);
+      $("#clearCacheButton").disabled = Boolean(state.running);
       if (state.root && document.activeElement !== $("#rootPath")) $("#rootPath").value = state.root;
       outputFolders = state.output_folders || outputFolders;
-      permanentTrashConfirmationRequired = Boolean(state.trash_requires_permanent_confirmation);
+      desktopMode = Boolean(state.desktop_mode);
+      document.querySelectorAll("[data-desktop-picker]").forEach((button) => { button.hidden = !desktopMode; });
+      $("#rootPath").hidden = desktopMode;
+      document.querySelectorAll(".settings-field input[id^='output']").forEach((input) => { input.hidden = desktopMode; });
       wasRunning = Boolean(state.running);
     }
     async function loadState() {
@@ -310,6 +336,14 @@
       });
       strip.append(button);
     }
+    function applyThumbnailLayout(strip) {
+      strip.classList.toggle("single-line", selectedThumbnailLayout === "single");
+    }
+    function applyViewOptions() {
+      $(".workspace").classList.toggle("list-hidden", !showVideoList);
+      $("#showVideoList").checked = showVideoList;
+      document.querySelectorAll(".thumb-strip").forEach(applyThumbnailLayout);
+    }
     function renderSmartState(path, state) {
       const controls = smartControls.get(path);
       if (!controls) return;
@@ -333,6 +367,7 @@
       const strip = document.querySelector(".thumb-strip");
       if (!strip) return;
       strip.replaceChildren();
+      applyThumbnailLayout(strip);
       (video.thumbnails || []).forEach((preview) => addPreviewThumb(strip, player, preview, video.filename));
       if (!video.thumbnails?.length) {
         const empty = document.createElement("span");
@@ -416,6 +451,7 @@
 
       const thumbs = document.createElement("div");
       thumbs.className = "thumb-strip";
+      applyThumbnailLayout(thumbs);
       (video.thumbnails || []).forEach((preview) => addPreviewThumb(thumbs, player, preview, video.filename));
       if (!video.thumbnails?.length) {
         const empty = document.createElement("span");
@@ -426,6 +462,22 @@
 
       const smartToolbar = document.createElement("div");
       smartToolbar.className = "smart-toolbar";
+      const standardButton = document.createElement("button");
+      standardButton.type = "button";
+      standardButton.className = "quiet-button";
+      standardButton.textContent = "Rigenera anteprime standard";
+      standardButton.addEventListener("click", async () => {
+        standardButton.disabled = true;
+        try {
+          await post("/api/previews/standard", { path: video.path });
+          await refreshPreviewStrip(video.path, player);
+          notify("Cinque anteprime standard aggiornate");
+        } catch (error) {
+          notify(error.message);
+        } finally {
+          standardButton.disabled = false;
+        }
+      });
       const smartButton = document.createElement("button");
       smartButton.type = "button";
       smartButton.className = "button primary";
@@ -443,7 +495,18 @@
       smartCancel.className = "quiet-button";
       smartCancel.textContent = "Annulla";
       smartCancel.hidden = true;
-      smartToolbar.append(smartButton, smartProgress, smartStatus, smartCancel);
+      const singleLineLabel = document.createElement("label");
+      singleLineLabel.className = "toggle-control";
+      const singleLineToggle = document.createElement("input");
+      singleLineToggle.type = "checkbox";
+      singleLineToggle.checked = selectedThumbnailLayout === "single";
+      singleLineToggle.addEventListener("change", () => {
+        selectedThumbnailLayout = singleLineToggle.checked ? "single" : "grid";
+        localStorage.setItem("lumen-thumbnail-layout", selectedThumbnailLayout);
+        applyViewOptions();
+      });
+      singleLineLabel.append(singleLineToggle, document.createTextNode("Anteprime su una riga"));
+      smartToolbar.append(standardButton, smartButton, smartProgress, smartStatus, smartCancel, singleLineLabel);
       smartControls.set(video.path, {
         button: smartButton, progress: smartProgress, status: smartStatus, cancel: smartCancel,
       });
@@ -552,15 +615,15 @@
       const moveButtons = document.createElement("div");
       moveButtons.className = "quick-move-buttons";
       [
-        { key: "topless", label: "TOPLESS" },
-        { key: "nude", label: "NUDE" },
-        { key: "lingerie", label: "LINGERIE" },
+        { key: "top", label: "TOP" },
+        { key: "main", label: "MAIN" },
+        { key: "linger", label: "LINGER" },
       ].forEach(({ key, label }) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "quiet-button";
         button.textContent = label;
-        button.title = `Sposta in output/${outputFolders[key]}`;
+        button.title = `Sposta in ${outputFolders[key]}`;
         button.addEventListener("click", async () => {
           button.disabled = true;
           try {
@@ -576,41 +639,31 @@
         });
         moveButtons.append(button);
       });
-      const trashButton = document.createElement("button");
-      trashButton.type = "button";
-      trashButton.className = "quiet-button trash-button";
-      trashButton.title = "Sposta nel cestino";
-      trashButton.setAttribute("aria-label", "Sposta nel cestino");
-      trashButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
-      trashButton.addEventListener("click", async () => {
-        const permanentDelete = permanentTrashConfirmationRequired;
-        const confirmationMessage = permanentDelete
-          ? `Il cestino Android non è disponibile.\n\n"${video.filename}" verrà CANCELLATO DEFINITIVAMENTE e non sarà recuperabile. Continuare?`
-          : `Spostare "${video.filename}" nel cestino del sistema? Potrai ripristinarlo dal cestino.`;
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "quiet-button trash-button";
+      deleteButton.title = desktopMode ? "Sposta nel cestino di Windows" : "Elimina definitivamente il video";
+      deleteButton.setAttribute("aria-label", deleteButton.title);
+      deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+      deleteButton.addEventListener("click", async () => {
+        const confirmationMessage = desktopMode
+          ? `Spostare "${video.filename}" nel cestino di Windows?`
+          : `Eliminare definitivamente "${video.filename}"? Questa operazione non è reversibile.`;
         const confirmed = window.confirm(confirmationMessage);
         if (!confirmed) return;
-        trashButton.disabled = true;
+        deleteButton.disabled = true;
         try {
-          try {
-            await post("/api/trash", { path: video.path, permanent_confirmed: permanentDelete });
-          } catch (error) {
-            if (!error.data?.permanent_confirmation_required) throw error;
-            const approvePermanentDelete = window.confirm(
-              `Android non è riuscito a inviare il video al cestino.\n\nLa cancellazione di "${video.filename}" sarà DEFINITIVA e irrecuperabile. Continuare?`,
-            );
-            if (!approvePermanentDelete) return;
-            await post("/api/trash", { path: video.path, permanent_confirmed: true });
-          }
+          await post("/api/delete", { path: video.path, confirmed: true });
           selectedPath = "";
           await loadVideos();
-          notify("Video spostato nel cestino");
+          notify(desktopMode ? "Video spostato nel cestino" : "Video eliminato definitivamente");
         } catch (error) {
           notify(error.message);
         } finally {
-          trashButton.disabled = false;
+          deleteButton.disabled = false;
         }
       });
-      moveButtons.append(trashButton);
+      moveButtons.append(deleteButton);
       moveControls.append(outputLabel, moveButtons);
       const actionLine = document.createElement("div");
       actionLine.className = "action-line";
@@ -622,24 +675,37 @@
       return {
         input_root: $("#rootPath").value,
         output_folders: {
-          topless: $("#outputTopless").value,
-          nude: $("#outputNude").value,
-          lingerie: $("#outputLingerie").value,
+          top: $("#outputTop").value || outputFolders.top,
+          main: $("#outputMain").value || outputFolders.main,
+          linger: $("#outputLinger").value || outputFolders.linger,
         },
       };
+    }
+    async function chooseDesktopFolder(inputId) {
+      const input = $(`#${inputId}`);
+      try {
+        const selected = await post("/api/folder/pick", {
+          kind: inputId === "rootPath" ? "input" : "output",
+          current: input.value,
+        });
+        if (selected.path) input.value = selected.path;
+      } catch (error) { notify(error.message); }
     }
     async function fillSettings() {
       try {
         const state = await request("/api/state");
-        $("#rootPath").value = state.root || "";
         outputFolders = state.output_folders || outputFolders;
-        $("#outputTopless").value = outputFolders.topless;
-        $("#outputNude").value = outputFolders.nude;
-        $("#outputLingerie").value = outputFolders.lingerie;
+        $("#outputTop").value = outputFolders.top;
+        $("#outputMain").value = outputFolders.main;
+        $("#outputLinger").value = outputFolders.linger;
         $("#settingsDialog").showModal();
       } catch (error) { notify(error.message); }
     }
     $("#settingsButton").addEventListener("click", fillSettings);
+    $("#inputFolderPicker").addEventListener("click", () => chooseDesktopFolder("rootPath"));
+    document.querySelectorAll("[data-picker-for]").forEach((button) => {
+      button.addEventListener("click", () => chooseDesktopFolder(button.dataset.pickerFor));
+    });
     $("#closeSettings").addEventListener("click", () => $("#settingsDialog").close());
     $("#settingsForm").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -668,6 +734,12 @@
         await loadState();
       } catch (error) { notify(error.message); }
     });
+    $("#showVideoList").addEventListener("change", () => {
+      showVideoList = $("#showVideoList").checked;
+      localStorage.setItem("lumen-show-video-list", String(showVideoList));
+      applyViewOptions();
+    });
+    applyViewOptions();
     loadState().then(loadVideos);
     setInterval(loadState, 1000);
   </script>

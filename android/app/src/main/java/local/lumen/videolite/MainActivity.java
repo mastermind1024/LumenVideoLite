@@ -19,7 +19,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
@@ -49,17 +48,22 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final int PICK_VIDEO_FOLDER = 12;
+    private static final int PICK_OUTPUT_TOP = 13;
+    private static final int PICK_OUTPUT_MAIN = 14;
+    private static final int PICK_OUTPUT_LINGER = 15;
     private static final int PREVIEW_COUNT = 5;
     private static final String PREFS = "lite_local";
     private static final String PREF_TREE = "video_tree_uri";
-    private static final String PREF_TOPLESS = "output_topless";
-    private static final String PREF_NUDE = "output_nude";
-    private static final String PREF_LINGERIE = "output_lingerie";
+    private static final String PREF_TOP = "output_top";
+    private static final String PREF_MAIN = "output_main";
+    private static final String PREF_LINGER = "output_linger";
     private static final int GREEN = Color.rgb(40, 107, 84);
     private static final int INK = Color.rgb(32, 53, 47);
     private static final int MUTED = Color.rgb(113, 128, 122);
@@ -67,6 +71,7 @@ public final class MainActivity extends Activity {
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final List<VideoEntry> videos = new ArrayList<>();
+    private final Map<String, Button> outputButtons = new HashMap<>();
     private DocumentFile videoRoot;
     private VideoEntry selectedVideo;
     private ExoPlayer player;
@@ -231,27 +236,31 @@ public final class MainActivity extends Activity {
         group.setOrientation(LinearLayout.VERTICAL);
         group.addView(label("CARTELLE DI OUTPUT"));
         LinearLayout buttons = new LinearLayout(this);
-        addOutputButton(buttons, "topless", "1_TOPLESS");
-        addOutputButton(buttons, "nude", "2_NUDE");
-        addOutputButton(buttons, "lingerie", "3_LINGERIE");
-        ImageButton trash = new ImageButton(this);
-        trash.setImageResource(android.R.drawable.ic_menu_delete);
-        trash.setColorFilter(Color.rgb(180, 35, 24));
-        trash.setBackgroundResource(android.R.drawable.btn_default);
-        trash.setContentDescription("Sposta nel cestino o elimina definitivamente");
-        trash.setOnClickListener(view -> confirmDelete());
-        buttons.addView(trash, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        addOutputButton(buttons, "top", "1_Top");
+        addOutputButton(buttons, "main", "2_Main");
+        addOutputButton(buttons, "linger", "3_Linger");
+        ImageButton delete = new ImageButton(this);
+        delete.setImageResource(android.R.drawable.ic_menu_delete);
+        delete.setColorFilter(Color.rgb(180, 35, 24));
+        delete.setBackgroundResource(android.R.drawable.btn_default);
+        delete.setContentDescription("Elimina definitivamente");
+        delete.setOnClickListener(view -> confirmDelete());
+        buttons.addView(delete, new LinearLayout.LayoutParams(dp(42), dp(42)));
         group.addView(buttons);
         parent.addView(group, spaced(-2, -2, 0, 0, 0, 0));
     }
 
     private void addOutputButton(LinearLayout parent, String key, String fallback) {
         String path = getPreferences(MODE_PRIVATE).getString(outputPreferenceKey(key), fallback);
-        Button button = button(lastPathPart(path));
-        button.setContentDescription("Sposta in " + path);
+        DocumentFile selected = path.startsWith("content:")
+            ? DocumentFile.fromTreeUri(this, Uri.parse(path)) : null;
+        String displayName = selected != null && selected.getName() != null ? selected.getName() : lastPathPart(path);
+        Button button = button(displayName);
+        button.setContentDescription("Sposta in " + displayName);
         button.setTextSize(10);
         button.setPadding(dp(7), 0, dp(7), 0);
         button.setOnClickListener(view -> moveToOutput(key));
+        outputButtons.put(key, button);
         parent.addView(button, spaced(-2, dp(42), 0, 0, 4, 0));
     }
 
@@ -277,14 +286,9 @@ public final class MainActivity extends Activity {
         });
         content.addView(chooseFolder, spaced(-1, -2, 0, 0, 0, 14));
 
-        EditText topless = settingsPathField(content, "CARTELLA TOPLESS",
-                preferences.getString(PREF_TOPLESS, "output/1_TOPLESS"));
-        EditText nude = settingsPathField(content, "CARTELLA NUDE",
-                preferences.getString(PREF_NUDE, "output/2_NUDE"));
-        EditText lingerie = settingsPathField(content, "CARTELLA LINGERIE",
-                preferences.getString(PREF_LINGERIE, "output/3_LINGERIE"));
-        content.addView(text("Percorsi relativi alla cartella input selezionata.", 11, MUTED),
-                spaced(-1, -2, 0, 0, 0, 9));
+        addOutputFolderPicker(content, dialogHolder, "top", "CARTELLA TOP", PICK_OUTPUT_TOP, "1_Top");
+        addOutputFolderPicker(content, dialogHolder, "main", "CARTELLA MAIN", PICK_OUTPUT_MAIN, "2_Main");
+        addOutputFolderPicker(content, dialogHolder, "linger", "CARTELLA LINGER", PICK_OUTPUT_LINGER, "3_Linger");
 
         Button clearCache = button("Svuota cache anteprime");
         clearCache.setOnClickListener(view -> confirmClearPreviewCache());
@@ -294,37 +298,27 @@ public final class MainActivity extends Activity {
                 .setTitle("Impostazioni")
                 .setView(scroll)
                 .setNegativeButton("Chiudi", null)
-                .setPositiveButton("Salva", null)
                 .create();
         dialogHolder[0] = dialog;
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            try {
-                String newTopless = validateRelativePath(topless.getText().toString());
-                String newNude = validateRelativePath(nude.getText().toString());
-                String newLingerie = validateRelativePath(lingerie.getText().toString());
-                preferences.edit()
-                        .putString(PREF_TOPLESS, newTopless)
-                        .putString(PREF_NUDE, newNude)
-                        .putString(PREF_LINGERIE, newLingerie)
-                        .apply();
-                dialog.dismiss();
-                if (selectedVideo != null) selectVideo(selectedVideo);
-                Toast.makeText(this, "Impostazioni salvate", Toast.LENGTH_SHORT).show();
-            } catch (IllegalArgumentException error) {
-                Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
-            }
-        }));
         dialog.show();
     }
 
-    private EditText settingsPathField(LinearLayout parent, String labelText, String value) {
-        parent.addView(label(labelText), spaced(-1, -2, 0, 0, 0, 4));
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setText(value);
-        input.setTextSize(13);
-        parent.addView(input, spaced(-1, dp(48), 0, 0, 0, 10));
-        return input;
+    private void addOutputFolderPicker(LinearLayout parent, AlertDialog[] dialogHolder,
+            String key, String title, int requestCode, String fallback) {
+        parent.addView(label(title), spaced(-1, -2, 0, 0, 0, 4));
+        String selected = getPreferences(MODE_PRIVATE).getString(outputPreferenceKey(key), fallback);
+        DocumentFile folder = selected.startsWith("content:")
+                ? DocumentFile.fromTreeUri(this, Uri.parse(selected)) : null;
+        TextView current = text(folder == null ? selected : folder.getName(), 12, INK);
+        current.setSingleLine(true);
+        current.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        parent.addView(current, spaced(-1, -2, 0, 0, 0, 5));
+        Button choose = button("Scegli cartella…");
+        choose.setOnClickListener(view -> {
+            dialogHolder[0].dismiss();
+            openOutputFolderPicker(requestCode);
+        });
+        parent.addView(choose, spaced(-1, -2, 0, 0, 0, 10));
     }
 
     private void confirmClearPreviewCache() {
@@ -353,9 +347,9 @@ public final class MainActivity extends Activity {
     }
 
     private String outputPreferenceKey(String key) {
-        if ("topless".equals(key)) return PREF_TOPLESS;
-        if ("nude".equals(key)) return PREF_NUDE;
-        return PREF_LINGERIE;
+        if ("top".equals(key)) return PREF_TOP;
+        if ("main".equals(key)) return PREF_MAIN;
+        return PREF_LINGER;
     }
 
     private String validateRelativePath(String value) {
@@ -377,17 +371,25 @@ public final class MainActivity extends Activity {
     }
 
     private void openVideoFolderPicker() {
+        openDocumentTreePicker(PICK_VIDEO_FOLDER);
+    }
+
+    private void openOutputFolderPicker(int requestCode) {
+        openDocumentTreePicker(requestCode);
+    }
+
+    private void openDocumentTreePicker(int requestCode) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(intent, PICK_VIDEO_FOLDER);
+        startActivityForResult(intent, requestCode);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_VIDEO_FOLDER || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         try {
@@ -395,10 +397,29 @@ public final class MainActivity extends Activity {
         } catch (SecurityException ignored) {
             Toast.makeText(this, "Accesso temporaneo alla cartella", Toast.LENGTH_SHORT).show();
         }
-        getPreferences(MODE_PRIVATE).edit().putString(PREF_TREE, uri.toString()).apply();
-        videoRoot = DocumentFile.fromTreeUri(this, uri);
-        statusLabel.setText("Cartella input: " + (videoRoot != null ? videoRoot.getName() : uri.getLastPathSegment()));
-        scanVideoFolder();
+        if (requestCode == PICK_VIDEO_FOLDER) {
+            getPreferences(MODE_PRIVATE).edit().putString(PREF_TREE, uri.toString()).apply();
+            videoRoot = DocumentFile.fromTreeUri(this, uri);
+            statusLabel.setText("Cartella input: " + (videoRoot != null ? videoRoot.getName() : uri.getLastPathSegment()));
+            scanVideoFolder();
+            return;
+        }
+        String key = requestCode == PICK_OUTPUT_TOP ? "top"
+            : requestCode == PICK_OUTPUT_MAIN ? "main"
+            : requestCode == PICK_OUTPUT_LINGER ? "linger" : null;
+        if (key == null) return;
+        DocumentFile selectedFolder = DocumentFile.fromTreeUri(this, uri);
+        if (selectedFolder == null || !selectedFolder.canWrite()) {
+            Toast.makeText(this, "La cartella selezionata non consente la scrittura", Toast.LENGTH_LONG).show();
+            return;
+        }
+        getPreferences(MODE_PRIVATE).edit().putString(outputPreferenceKey(key), uri.toString()).apply();
+        Button outputButton = outputButtons.get(key);
+        if (outputButton != null && selectedFolder.getName() != null) {
+            outputButton.setText(selectedFolder.getName());
+            outputButton.setContentDescription("Sposta in " + selectedFolder.getName());
+        }
+        Toast.makeText(this, "Cartella " + key.toUpperCase(Locale.ROOT) + " salvata", Toast.LENGTH_SHORT).show();
     }
 
     private void restoreVideoFolder() {
@@ -466,10 +487,31 @@ public final class MainActivity extends Activity {
     private List<String> configuredOutputPaths() {
         SharedPreferences preferences = getPreferences(MODE_PRIVATE);
         List<String> paths = new ArrayList<>();
-        paths.add(preferences.getString(PREF_TOPLESS, "output/1_TOPLESS"));
-        paths.add(preferences.getString(PREF_NUDE, "output/2_NUDE"));
-        paths.add(preferences.getString(PREF_LINGERIE, "output/3_LINGERIE"));
+        for (String key : new String[]{"top", "main", "linger"}) {
+            String selected = preferences.getString(outputPreferenceKey(key), defaultOutputPath(key));
+            String relative = relativeOutputPath(selected);
+            if (relative != null && !relative.isEmpty()) paths.add(relative);
+        }
         return paths;
+    }
+
+    private String defaultOutputPath(String key) {
+        if ("top".equals(key)) return "1_Top";
+        if ("main".equals(key)) return "2_Main";
+        return "3_Linger";
+    }
+
+    private String relativeOutputPath(String storedPath) {
+        if (videoRoot == null) return null;
+        if (!storedPath.startsWith("content:")) return storedPath;
+        try {
+            String rootId = DocumentsContract.getTreeDocumentId(videoRoot.getUri());
+            String outputId = DocumentsContract.getTreeDocumentId(Uri.parse(storedPath));
+            if (rootId.equals(outputId)) return "";
+            String prefix = rootId + "/";
+            if (outputId.startsWith(prefix)) return outputId.substring(prefix.length()).replace(':', '/');
+        } catch (Exception ignored) { }
+        return null;
     }
 
     private VideoEntry readVideoMetadata(DocumentFile file) {
@@ -600,14 +642,22 @@ public final class MainActivity extends Activity {
     private void moveToOutput(String key) {
         if (selectedVideo == null || videoRoot == null) return;
         String preferenceKey = outputPreferenceKey(key);
-        String fallback = "topless".equals(key) ? "output/1_TOPLESS"
-                : "nude".equals(key) ? "output/2_NUDE" : "output/3_LINGERIE";
-        String relativePath = getPreferences(MODE_PRIVATE).getString(preferenceKey, fallback);
+        String fallback = defaultOutputPath(key);
+        String selectedPath = getPreferences(MODE_PRIVATE).getString(preferenceKey, fallback);
+        DocumentFile chosenFolder = selectedPath.startsWith("content:")
+            ? DocumentFile.fromTreeUri(this, Uri.parse(selectedPath)) : null;
+        String relativePath = chosenFolder != null && chosenFolder.getName() != null
+            ? chosenFolder.getName() : selectedPath;
         VideoEntry item = selectedVideo;
         statusLabel.setText("Spostamento in " + relativePath + "…");
         worker.execute(() -> {
             try {
-                DocumentFile destinationFolder = findOrCreateRelativeDirectory(videoRoot, relativePath);
+                DocumentFile destinationFolder = selectedPath.startsWith("content:")
+                        ? DocumentFile.fromTreeUri(this, Uri.parse(selectedPath))
+                        : findOrCreateRelativeDirectory(videoRoot, relativePath);
+                if (destinationFolder == null || !destinationFolder.canWrite()) {
+                    throw new IllegalStateException("Cartella di destinazione non accessibile");
+                }
                 DocumentFile destination = destinationFolder.createFile(mimeType(item.name), item.name);
                 if (destination == null) throw new IllegalStateException("Impossibile creare il file di destinazione");
                 try (InputStream input = getContentResolver().openInputStream(item.file.getUri());
@@ -640,8 +690,7 @@ public final class MainActivity extends Activity {
         VideoEntry item = selectedVideo;
         new AlertDialog.Builder(this)
                 .setTitle("Eliminazione definitiva")
-                .setMessage("Il selettore documenti non offre un cestino per questa cartella.\n\n\""
-                        + item.name + "\" verrà cancellato definitivamente e non sarà recuperabile.")
+            .setMessage("\"" + item.name + "\" verrà eliminato definitivamente e non sarà recuperabile.")
                 .setNegativeButton("Annulla", null)
                 .setPositiveButton("Elimina definitivamente", (dialog, which) -> worker.execute(() -> {
                     boolean deleted = item.file.delete();

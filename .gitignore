@@ -1,4 +1,8 @@
 __pycache__
+desktop/.venv/
+desktop/build/
+desktop/dist/
+desktop/*.spec
 *media_input/
 scripts/
 benchmark.sh

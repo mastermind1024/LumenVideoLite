@@ -13,7 +13,6 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path
-from send2trash import send2trash
 from urllib.parse import parse_qs, quote, urlsplit
 from smart_thumbnail_generator import AnalysisCancelledError, SmartThumbnailGenerator
 
@@ -21,46 +20,32 @@ APP_NAME = "Lumen Video Lite"
 VIDEO_EXTENSIONS = {".avi", ".mkv", ".mov", ".mp4", ".m4v", ".webm", ".wmv"}
 THUMBNAIL_COUNT = 5
 OUTPUT_FOLDERS = {
-    "topless": "1_TOPLESS",
-    "nude": "2_NUDE",
-    "lingerie": "3_LINGERIE",
+    "top": "1_Top",
+    "main": "2_Main",
+    "linger": "3_Linger",
 }
 
 
-class TrashUnavailableError(RuntimeError):
-    pass
-
-
-def is_android() -> bool:
-    termux_prefix = os.environ.get("PREFIX", "")
-    return sys.platform == "android" or "ANDROID_ROOT" in os.environ or "com.termux" in termux_prefix
-
-
-def android_trash_command() -> str | None:
-    return shutil.which("termux-trash") if is_android() else None
-
-
 def default_data_dir() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
+        return base / "LumenVideoLite" / "data"
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     return base / "lumen-video-search"
 
 
 def default_cache_dir() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
+        return base / "LumenVideoLite" / "cache" / "previews"
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
     return base / "lumen-video-search" / "previews"
 
 
-def send_file_to_trash(path: str) -> None:
-    if is_android():
-        trash_command = android_trash_command()
-        if not trash_command:
-            raise TrashUnavailableError("Il cestino Android non è disponibile.")
-        try:
-            subprocess.run([trash_command, path], check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as error:
-            raise TrashUnavailableError(error.stderr.strip() or "Android non ha potuto spostare il video nel cestino.") from error
-        return
-    send2trash(path)
+def default_output_dir() -> Path:
+    if os.name == "nt":
+        return Path.home() / "Videos" / "LumenVideoLite"
+    return Path.cwd() / "media_output"
 
 
 def preview_timestamp(duration: float, index: int) -> float:
@@ -76,12 +61,12 @@ def preview_cache_key(path: str) -> str:
 
 
 def preview_index(path: Path) -> int:
-    match = re.fullmatch(r".+?_(\d+)(?:_\d+)?(?:_smart_[a-f0-9]+)?\.png", path.name)
+    match = re.fullmatch(r".+?_(\d+)(?:_\d+)?(?:_(?:smart|std)_[a-f0-9]+)?\.png", path.name)
     return int(match.group(1)) if match else 0
 
 
 def preview_time(path: Path) -> float:
-    match = re.fullmatch(r".+?_(\d+)(?:_(\d+))?(?:_smart_[a-f0-9]+)?\.png", path.name)
+    match = re.fullmatch(r".+?_(\d+)(?:_(\d+))?(?:_(?:smart|std)_[a-f0-9]+)?\.png", path.name)
     return int(match.group(2)) / 1000 if match and match.group(2) else 0.0
 
 
@@ -90,7 +75,7 @@ def thumbnail_paths(cache_dir: Path, path: str) -> list[Path]:
     paths = cache_dir.glob(f"{prefix}_*.png")
 
     def sort_key(item: Path) -> tuple[int, int]:
-        match = re.fullmatch(rf"{re.escape(prefix)}_(\d+)(?:_(\d+))?(?:_smart_[a-f0-9]+)?\.png", item.name)
+        match = re.fullmatch(rf"{re.escape(prefix)}_(\d+)(?:_(\d+))?(?:_(?:smart|std)_[a-f0-9]+)?\.png", item.name)
         return (int(match.group(1)), int(match.group(2) or 0)) if match else (0, 0)
 
     return sorted(paths, key=sort_key)
@@ -98,6 +83,10 @@ def thumbnail_paths(cache_dir: Path, path: str) -> list[Path]:
 
 def smart_manifest_path(cache_dir: Path, path: str) -> Path:
     return cache_dir / f"{preview_cache_key(path)}_smart.json"
+
+
+def standard_manifest_path(cache_dir: Path, path: str) -> Path:
+    return cache_dir / f"{preview_cache_key(path)}_standard.json"
 
 
 def decoder_available() -> bool:
@@ -144,6 +133,7 @@ def create_previews(path: str, cache_dir: Path, use_gpu: bool = False) -> dict[s
         cache_dir.mkdir(parents=True, exist_ok=True)
         prefix = preview_cache_key(path)
         smart_manifest_path(cache_dir, path).unlink(missing_ok=True)
+        standard_manifest_path(cache_dir, path).unlink(missing_ok=True)
         for old_path in cache_dir.glob(f"{prefix}_*.png"):
             old_path.unlink(missing_ok=True)
         for index in range(count):
@@ -169,6 +159,78 @@ def create_previews(path: str, cache_dir: Path, use_gpu: bool = False) -> dict[s
         return {"duration": duration, "width": width, "height": height, "fps": fps}
     finally:
         capture.release()
+
+
+def regenerate_standard_previews(path: str, cache_dir: Path) -> list[dict[str, object]]:
+    if cv2 is None:
+        raise RuntimeError("OpenCV non è installato.")
+    capture = open_capture(path)
+    if capture is None:
+        raise RuntimeError("Impossibile aprire il video.")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    temporary_dir = Path(tempfile.mkdtemp(prefix="lumen-standard-", dir=cache_dir))
+    published: list[Path] = []
+    prefix = preview_cache_key(path)
+    generation = uuid.uuid4().hex[:8]
+    try:
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
+        if duration <= 0:
+            raise RuntimeError("Durata del video non disponibile.")
+        previews = []
+        for index in range(THUMBNAIL_COUNT):
+            timestamp = min(duration * (index + 1) / (THUMBNAIL_COUNT + 1), max(0.0, duration - 0.05))
+            capture.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                raise RuntimeError(f"Impossibile acquisire il frame standard {index + 1}.")
+            height, width = frame.shape[:2]
+            scale = min(1.0, 480 / max(width, height))
+            if scale < 1:
+                frame = cv2.resize(
+                    frame, (max(1, round(width * scale)), max(1, round(height * scale))),
+                    interpolation=cv2.INTER_AREA,
+                )
+            staged = temporary_dir / f"{index:04d}.png"
+            ok, encoded = cv2.imencode(".png", frame)
+            if not ok:
+                raise RuntimeError(f"Impossibile codificare il frame standard {index + 1}.")
+            staged.write_bytes(encoded.tobytes())
+            previews.append({
+                "index": index,
+                "frameIndex": round(timestamp * fps),
+                "time": timestamp,
+                "filename": f"{prefix}_{index:04d}_{int(timestamp * 1000):012d}_std_{generation}.png",
+            })
+
+        for item in previews:
+            target = cache_dir / item["filename"]
+            os.replace(temporary_dir / f"{item['index']:04d}.png", target)
+            published.append(target)
+        staged_manifest = temporary_dir / "manifest.json"
+        staged_manifest.write_text(json.dumps({"version": 1, "type": "standard", "previews": previews}), encoding="utf-8")
+        os.replace(staged_manifest, standard_manifest_path(cache_dir, path))
+        published.clear()
+        try:
+            smart_manifest_path(cache_dir, path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        keep = {item["filename"] for item in previews}
+        for old_preview in thumbnail_paths(cache_dir, path):
+            if old_preview.name not in keep:
+                try:
+                    old_preview.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return previews
+    except Exception:
+        for image in published:
+            image.unlink(missing_ok=True)
+        raise
+    finally:
+        capture.release()
+        shutil.rmtree(temporary_dir, ignore_errors=True)
 
 
 class Catalog:
@@ -276,7 +338,7 @@ class Catalog:
                  stat.st_size, stat.st_mtime, source),
             )
 
-    def mark_trashed(self, path: str) -> None:
+    def mark_removed(self, path: str) -> None:
         with self.connect() as connection:
             connection.execute("UPDATE videos SET missing=1, archived=1 WHERE path=?", (path,))
 
@@ -292,13 +354,18 @@ class LocalWebApp:
         cache_dir = Path(settings.get("cache_dir", str(default_cache_dir()))).expanduser()
         self.catalog = Catalog(data_dir / "catalog.sqlite3", cache_dir)
         self.root = str(Path(settings.get("input_root", Path.cwd() / "media_input")).expanduser().resolve())
+        self.output_dir = default_output_dir().resolve()
+        self.desktop_mode = os.environ.get("LUMEN_DESKTOP", "") == "1" and sys.platform == "win32"
         self.output_folders = {
-            key: self._validate_output_subfolder(settings.get("output_folders", {}).get(key, default))
+            key: self._validate_output_path(
+                settings.get("output_folders", {}).get(key, str(self.output_dir / default))
+            )
             for key, default in OUTPUT_FOLDERS.items()
         }
-        self.output_dir = (Path.cwd() / "output").resolve()
         self.cuda_available = decoder_available()
         self.lock = threading.Lock()
+        self.standard_running = False
+        self.folder_picker = None
         self.smart_job: dict[str, object] | None = None
         self.smart_cancel: threading.Event | None = None
         self.state: dict[str, object] = {
@@ -318,28 +385,32 @@ class LocalWebApp:
             "root": self.root,
             "count": count,
             "cuda_available": self.cuda_available,
-            "trash_requires_permanent_confirmation": is_android() and not android_trash_command(),
+            "desktop_mode": self.desktop_mode,
             "output_folders": dict(self.output_folders),
         }
 
-    @staticmethod
-    def _validate_output_subfolder(value: object) -> str:
-        folder = Path(str(value).strip())
-        if not str(value).strip() or folder.is_absolute() or ".." in folder.parts or folder == Path("."):
-            raise ValueError("Il percorso output deve essere relativo e restare dentro output/.")
-        return str(folder)
+    def _validate_output_path(self, value: object) -> str:
+        text = str(value).strip()
+        if not text:
+            raise ValueError("Indica un percorso assoluto per la cartella di output.")
+        folder = Path(text).expanduser()
+        if not folder.is_absolute():
+            folder = self.output_dir / folder
+        return str(folder.resolve())
 
     def save_settings(self, input_root: str, output_folders: dict[str, object]) -> dict[str, object]:
+        if not input_root.strip():
+            raise ValueError("Seleziona o inserisci la cartella input.")
         root = Path(input_root).expanduser().resolve()
         if not root.is_dir():
             raise ValueError("La cartella input selezionata non esiste.")
         normalized = {
-            key: self._validate_output_subfolder(output_folders.get(key, self.output_folders[key]))
+            key: self._validate_output_path(output_folders.get(key, self.output_folders[key]))
             for key in OUTPUT_FOLDERS
         }
         with self.lock:
-            if self.state["running"]:
-                raise RuntimeError("Non puoi cambiare le impostazioni durante l’indicizzazione.")
+            if self.state["running"] or self.standard_running or self.smart_job and self.smart_job["running"]:
+                raise RuntimeError("Non puoi cambiare le impostazioni durante un’elaborazione.")
             self.root = str(root)
             self.output_folders = normalized
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -351,12 +422,21 @@ class LocalWebApp:
         self.settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"root": str(root), "output_folders": dict(normalized)}
 
+    def pick_folder(self, kind: str, current: str = "") -> str:
+        if not self.desktop_mode:
+            raise ValueError("Il selettore nativo è disponibile solo nella versione Windows.")
+        if kind not in {"input", "output"}:
+            raise ValueError("Tipo di cartella non valido.")
+        if not self.folder_picker:
+            raise RuntimeError("Il selettore cartelle desktop non è stato inizializzato.")
+        return self.folder_picker(kind, current)
+
     def clear_preview_cache(self) -> int:
         with self.lock:
-            if self.state["running"] or self.smart_job and self.smart_job["running"]:
+            if self.state["running"] or self.standard_running or self.smart_job and self.smart_job["running"]:
                 raise RuntimeError("Attendi la fine dell’elaborazione prima di svuotare la cache.")
         removed = 0
-        for preview in (*self.catalog.cache_dir.glob("*.png"), *self.catalog.cache_dir.glob("*_smart.json")):
+        for preview in (*self.catalog.cache_dir.glob("*.png"), *self.catalog.cache_dir.glob("*_smart.json"), *self.catalog.cache_dir.glob("*_standard.json")):
             preview.unlink(missing_ok=True)
             removed += 1
         return removed
@@ -366,7 +446,7 @@ class LocalWebApp:
         if not video or video["missing"] or video["archived"] or not Path(path).is_file():
             raise ValueError("Video non trovato o non disponibile.")
         with self.lock:
-            if self.state["running"]:
+            if self.state["running"] or self.standard_running:
                 raise RuntimeError("Attendi la fine dell’indicizzazione prima di rigenerare le anteprime.")
             if self.smart_job and self.smart_job["running"]:
                 raise RuntimeError("È già in corso una rigenerazione smart.")
@@ -444,6 +524,10 @@ class LocalWebApp:
                     message=f"Completato: {len(previews)} anteprime smart.", status="completed",
                 )
             published.clear()
+            try:
+                standard_manifest_path(self.catalog.cache_dir, path).unlink(missing_ok=True)
+            except OSError:
+                pass
             current_names = {item["filename"] for item in previews}
             for old_preview in previous:
                 if old_preview.name not in current_names:
@@ -481,6 +565,20 @@ class LocalWebApp:
             if self.smart_job["running"] and self.smart_cancel:
                 self.smart_cancel.set()
 
+    def regenerate_standard(self, path: str) -> list[dict[str, object]]:
+        video = self.catalog.get_video(path)
+        if not video or video["missing"] or video["archived"] or not Path(path).is_file():
+            raise ValueError("Video non trovato o non disponibile.")
+        with self.lock:
+            if self.state["running"] or self.standard_running or self.smart_job and self.smart_job["running"]:
+                raise RuntimeError("Attendi la fine dell’elaborazione in corso.")
+            self.standard_running = True
+        try:
+            return regenerate_standard_previews(path, self.catalog.cache_dir)
+        finally:
+            with self.lock:
+                self.standard_running = False
+
     def start_index(self, root_text: str, mode: str = "CPU") -> None:
         root = Path(root_text).expanduser().resolve()
         if not root.is_dir():
@@ -488,7 +586,7 @@ class LocalWebApp:
         if cv2 is None:
             raise RuntimeError("OpenCV non è installato. Esegui: python -m pip install -r requirements.txt")
         with self.lock:
-            if self.state["running"]:
+            if self.state["running"] or self.standard_running:
                 raise RuntimeError("Un’indicizzazione è già in corso.")
             if self.smart_job and self.smart_job["running"]:
                 raise RuntimeError("Attendi la fine della rigenerazione smart.")
@@ -546,9 +644,15 @@ class LocalWebApp:
         for video in videos:
             path = str(video["path"])
             images = thumbnail_paths(self.catalog.cache_dir, path)
-            manifest_path = smart_manifest_path(self.catalog.cache_dir, path)
+            manifests = [
+                manifest for manifest in (
+                    smart_manifest_path(self.catalog.cache_dir, path),
+                    standard_manifest_path(self.catalog.cache_dir, path),
+                ) if manifest.is_file()
+            ]
+            manifest_path = max(manifests, key=lambda manifest: manifest.stat().st_mtime_ns) if manifests else None
             try:
-                smart_previews = json.loads(manifest_path.read_text(encoding="utf-8"))["previews"]
+                smart_previews = json.loads(manifest_path.read_text(encoding="utf-8"))["previews"] if manifest_path else None
                 if not all((self.catalog.cache_dir / item["filename"]).is_file() for item in smart_previews):
                     raise ValueError("Manifest anteprime incompleto")
             except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
@@ -558,10 +662,11 @@ class LocalWebApp:
                 for item in smart_previews:
                     image_url = (
                         f"/api/thumbnail?path={quote(path, safe='')}&index={item['index']}"
+                        f"&file={quote(item['filename'], safe='')}"
                         f"&v={int((self.catalog.cache_dir / item['filename']).stat().st_mtime_ns)}"
                     )
                     video["thumbnails"].append({
-                        **{key: item[key] for key in ("frameIndex", "personId", "eventType", "changeScore")},
+                        **{key: item[key] for key in ("frameIndex", "personId", "eventType", "changeScore") if key in item},
                         "index": item["index"],
                         "time": item["time"],
                         "timestamp": item["time"],
@@ -584,6 +689,8 @@ class LocalWebApp:
 
     def move_video_to_output(self, path: str, subfolder: str) -> str:
         with self.lock:
+            if self.standard_running:
+                raise RuntimeError("Attendi la fine della rigenerazione standard prima di spostare il video.")
             if self.smart_job and self.smart_job["running"] and self.smart_job["path"] == path:
                 raise RuntimeError("Attendi la fine dell’analisi smart prima di spostare il video.")
         if subfolder not in self.output_folders:
@@ -592,12 +699,7 @@ class LocalWebApp:
         source = Path(path).resolve()
         if not video or video["missing"] or video["archived"] or not source.is_file():
             raise ValueError("Video non trovato o già archiviato.")
-        output_root = self.output_dir.resolve()
-        destination_dir = (output_root / self.output_folders[subfolder]).resolve()
-        try:
-            destination_dir.relative_to(output_root)
-        except ValueError as error:
-            raise ValueError("La destinazione deve restare dentro output/.") from error
+        destination_dir = Path(self.output_folders[subfolder]).resolve()
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination = destination_dir / source.name
         if destination.exists():
@@ -615,39 +717,47 @@ class LocalWebApp:
                 image.rename(image.with_name(new_prefix + image.name[len(old_prefix):]))
             except OSError:
                 pass
-        old_manifest = smart_manifest_path(self.catalog.cache_dir, path)
-        new_manifest = smart_manifest_path(self.catalog.cache_dir, new_path)
-        if old_manifest.exists():
-            try:
-                manifest = json.loads(old_manifest.read_text(encoding="utf-8"))
-                manifest["previews"] = [
-                    {**item, "filename": item["filename"].replace(old_prefix, new_prefix, 1)}
-                    for item in manifest["previews"]
-                ]
-                new_manifest.write_text(json.dumps(manifest), encoding="utf-8")
-                old_manifest.unlink(missing_ok=True)
-            except (OSError, ValueError, KeyError, TypeError):
-                old_manifest.unlink(missing_ok=True)
+        for manifest_path in (smart_manifest_path, standard_manifest_path):
+            old_manifest = manifest_path(self.catalog.cache_dir, path)
+            new_manifest = manifest_path(self.catalog.cache_dir, new_path)
+            if old_manifest.exists():
+                try:
+                    manifest = json.loads(old_manifest.read_text(encoding="utf-8"))
+                    manifest["previews"] = [
+                        {**item, "filename": item["filename"].replace(old_prefix, new_prefix, 1)}
+                        for item in manifest["previews"]
+                    ]
+                    new_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+                    old_manifest.unlink(missing_ok=True)
+                except (OSError, ValueError, KeyError, TypeError):
+                    old_manifest.unlink(missing_ok=True)
         return new_path
 
-    def trash_video(self, path: str, permanent_confirmed: bool = False) -> None:
+    def delete_video(self, path: str, confirmed: bool = False) -> None:
+        if not confirmed:
+            raise ValueError("È necessaria la conferma per eliminare il video.")
         with self.lock:
+            if self.standard_running:
+                raise RuntimeError("Attendi la fine della rigenerazione standard prima di eliminare il video.")
             if self.smart_job and self.smart_job["running"] and self.smart_job["path"] == path:
                 raise RuntimeError("Attendi la fine dell’analisi smart prima di rimuovere il video.")
         video = self.catalog.get_video(path)
         source = Path(path).resolve()
         if not video or video["missing"] or video["archived"] or not source.is_file():
             raise ValueError("Video non trovato o già archiviato.")
-        if permanent_confirmed:
-            if not is_android():
-                raise ValueError("La cancellazione definitiva è consentita solo come fallback Android.")
-            source.unlink()
+        if self.desktop_mode:
+            try:
+                from send2trash import send2trash
+            except ImportError as error:
+                raise RuntimeError("Per il cestino Windows installa desktop/requirements.txt.") from error
+            send2trash(str(source))
         else:
-            send_file_to_trash(str(source))
-        self.catalog.mark_trashed(path)
+            source.unlink()
+        self.catalog.mark_removed(path)
         for preview in thumbnail_paths(self.catalog.cache_dir, path):
             preview.unlink(missing_ok=True)
         smart_manifest_path(self.catalog.cache_dir, path).unlink(missing_ok=True)
+        standard_manifest_path(self.catalog.cache_dir, path).unlink(missing_ok=True)
 
 
 class LocalWebServer(http.server.ThreadingHTTPServer):
@@ -715,7 +825,10 @@ class LocalWebRequestHandler(http.server.BaseHTTPRequestHandler):
                 index = int(params.get("index", ["0"])[0])
                 video = app.catalog.get_video(path)
                 previews = thumbnail_paths(app.catalog.cache_dir, path) if video else []
-                image = next((item for item in previews if preview_index(item) == index), None)
+                filename = Path(params.get("file", [""])[0]).name
+                image = next(
+                    (item for item in previews if item.name == filename), None
+                ) if filename else next((item for item in previews if preview_index(item) == index), None)
                 if image is None:
                     self.send_error(404)
                     return
@@ -791,6 +904,12 @@ class LocalWebRequestHandler(http.server.BaseHTTPRequestHandler):
             elif self.path == "/api/smart/cancel":
                 app.cancel_smart_generation(str(data.get("jobId", "")))
                 self.send_json({"ok": True})
+            elif self.path == "/api/previews/standard":
+                previews = app.regenerate_standard(str(data.get("path", "")))
+                self.send_json({"ok": True, "previews": previews})
+            elif self.path == "/api/folder/pick":
+                path = app.pick_folder(str(data.get("kind", "")), str(data.get("current", "")))
+                self.send_json({"ok": True, "path": path})
             elif self.path == "/api/settings":
                 result = app.save_settings(
                     str(data.get("input_root", "")),
@@ -804,16 +923,8 @@ class LocalWebRequestHandler(http.server.BaseHTTPRequestHandler):
                     str(data.get("path", "")), str(data.get("subfolder", ""))
                 )
                 self.send_json({"ok": True, "path": destination})
-            elif self.path == "/api/trash":
-                path = str(data.get("path", ""))
-                try:
-                    app.trash_video(path, permanent_confirmed=bool(data.get("permanent_confirmed", False)))
-                except TrashUnavailableError as error:
-                    self.send_json({
-                        "error": str(error),
-                        "permanent_confirmation_required": True,
-                    }, 409)
-                    return
+            elif self.path == "/api/delete":
+                app.delete_video(str(data.get("path", "")), confirmed=bool(data.get("confirmed", False)))
                 self.send_json({"ok": True})
             elif self.path == "/api/open":
                 path = str(data.get("path", ""))
